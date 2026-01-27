@@ -1,0 +1,11 @@
+
+.idea/
+.env
+env.sh
+
+__pycache__/
+/htmlcov/
+
+.coverage
+
+coverage.xml

@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<Container>
+  <Name>Crafty Discord Bot</Name>
+  <Repository>crafty-discord-bot:latest</Repository>
+  <Registry>local</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/Two-Play/Crafty-Discord-bot</Support>
+  <Overview>Crafty Discord Bot Controller für Unraid</Overview>
+  <WebUI>https://crafty.wimwamwom.de</WebUI>
+  <Category>Utilities</Category>
+  <Project>Crafty Discord Bot</Project>
+  <Icon>https://wimwamwom.de/Bilder/mc-bot.png</Icon>
+
+  <Config>
+    <Environment>
+      <Variable>
+        <Name>SERVER_URL</Name>
+        <Default>https://crafty.wimwamwom.de</Default>
+        <Description>URL deines Crafty Controllers</Description>
+      </Variable>
+      <Variable>
+        <Name>DISCORD_TOKEN</Name>
+        <Default></Default>
+        <Description>Discord Bot Token</Description>
+      </Variable>
+      <Variable>
+        <Name>CRAFTY_TOKEN</Name>
+        <Default></Default>
+        <Description>Crafty API Token</Description>
+      </Variable>
+      <Variable>
+        <Name>ENABLE_AUTO_STOP_SERVER</Name>
+        <Default>true</Default>
+        <Description>Auto Stop Server aktivieren</Description>
+      </Variable>
+      <Variable>
+        <Name>AUTO_STOP_SLEEP_TIME</Name>
+        <Default>1800</Default>
+        <Description>Wartezeit in Sekunden bis Auto Stop</Description>
+      </Variable>
+      <Variable>
+        <Name>GUILD_ID</Name>
+        <Default></Default>
+        <Description>Discord Guild/Server ID</Description>
+      </Variable>
+    </Environment>
+
+    <Volume>
+      <HostDir>/mnt/user/appdata/crafty-discord-bot</HostDir>
+      <ContainerDir>/app</ContainerDir>
+      <Description>Bot Files</Description>
+      <Mode>rw</Mode>
+    </Volume>
+  </Config>
+</Container>
