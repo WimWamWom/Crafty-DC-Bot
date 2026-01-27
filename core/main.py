@@ -93,7 +93,12 @@ async def on_ready():
             print('auto stop disabled')
     except Exception as e:
         print(e)
-    # get_token()
+    # Synchronize slash commands on startup
+    try:
+        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
+        print(f"{len(synced)} commands synced on startup.")
+    except Exception as e:
+        print(f"Failed to sync commands on startup: {e}")
 
 
 @bot.hybrid_command(name='sync', description='Sync slash commands')

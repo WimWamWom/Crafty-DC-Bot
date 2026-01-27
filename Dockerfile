@@ -10,6 +10,6 @@ COPY . .
 
 ENV PYTHONWARNINGS="ignore:Unverified HTTPS request"
 
-CMD [ "python", "./core/main.py" ]
+CMD [ "python", "-u", "./core/main.py" ]
 
 #ENTRYPOINT ["top", "-b"]
