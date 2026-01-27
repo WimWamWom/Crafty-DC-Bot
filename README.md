@@ -1,5 +1,6 @@
-# Crafty Controller Discord bot
+# This Repo was originally created by [Two-Play](https://github.com/Two-Play/Crafty-Discord-bot) <br>I cloned it and made some personal changes for my Use-Case
 
+# Crafty Controller Discord bot
 ![GitHub License](https://img.shields.io/github/license/Two-Play/Crafty-Discord-bot)
 ![GitHub top language](https://img.shields.io/github/languages/top/Two-Play/Crafty-Discord-bot)
 ![GitHub contributors](https://img.shields.io/github/contributors/Two-Play/Crafty-Discord-bot)
