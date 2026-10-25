@@ -11,16 +11,12 @@ import re
 from core.config import get
 from core.properties import get_property, read_properties, set_property, write_properties
 
-MOTD_ENABLED: bool = get('motd.enabled')
-MOTD_MESSAGES: list[str] = get('motd.messages')
-MOTD_EXCLUDED: list[str] = get('motd.excluded_servers')
-
 # &a, &l, ... as an easier way to type § color codes
 COLOR_CODE = re.compile(r'&([0-9a-fk-orA-FK-OR])')
 
 
 def is_active(server_id: str) -> bool:
-    return MOTD_ENABLED and bool(MOTD_MESSAGES) and server_id not in MOTD_EXCLUDED
+    return get('motd.enabled') and bool(get('motd.messages')) and server_id not in get('motd.excluded_servers')
 
 
 def encode(message: str) -> str:
@@ -60,7 +56,8 @@ def apply_random_motd(properties: str) -> str:
     """
     # pick a different one than now if possible
     current = current_motd(properties)
-    choices = [message for message in MOTD_MESSAGES if decode(encode(message)) != current] or MOTD_MESSAGES
+    messages = get('motd.messages')
+    choices = [message for message in messages if decode(encode(message)) != current] or messages
     return replace_motd(properties, encode(random.choice(choices)))
 
 

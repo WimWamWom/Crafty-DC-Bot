@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 
 from core.config import config, missing_required
-from core.constants import ALLOWED_SERVERS
+from core.constants import allowed_servers
 from core.server import get_server_stats, get_servers
 
 
@@ -59,7 +59,8 @@ async def check_server_id(server_id: str, ctx=None) -> bool:
         if ctx:
             await ctx.reply('Invalid server ID', ephemeral=True)
         return False
-    if ALLOWED_SERVERS and server_id not in ALLOWED_SERVERS:
+    allowed = allowed_servers()
+    if allowed and server_id not in allowed:
         print('Server not available')
         if ctx:
             await ctx.reply('Server not available', ephemeral=True)
@@ -72,6 +73,16 @@ async def check_server_id(server_id: str, ctx=None) -> bool:
 cached_server_list = None
 cache_timestamp = 0
 CACHE_DURATION = 60  # Cache duration in seconds (e.g., 1 minute)
+
+
+def clear_server_cache() -> None:
+    """
+    Forget the cached server list and running states, e.g. after the available servers were changed.
+    """
+    global cached_server_list, cache_timestamp, running_timestamp
+    cached_server_list = None
+    cache_timestamp = 0
+    running_timestamp = 0
 
 
 async def get_cached_servers() -> list[dict] | None:

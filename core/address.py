@@ -17,11 +17,17 @@ from core.network import HttpMethod, is_response_successful, send_request
 from core.properties import get_property, read_properties, set_property, write_properties
 from core.server import get_server_stats, get_servers
 
-ADDRESS_ENABLED: bool = get('address.enabled')
-DOMAINS: list[tuple[str, int]] = [(entry.rsplit(':', 1)[0], int(entry.rsplit(':', 1)[1]))
-                                  for entry in get('address.domains')]
-# server ID -> domain the server always gets, or KEEP_PORT
-ADDRESS_FIXED: dict[str, str] = get('address.fixed')
+
+def _domains() -> list[tuple[str, int]]:
+    return [(entry.rsplit(':', 1)[0], int(entry.rsplit(':', 1)[1])) for entry in get('address.domains')]
+
+
+def _fixed() -> dict[str, str]:
+    """
+    Server ID -> domain the server always gets, or KEEP_PORT.
+    """
+    return get('address.fixed')
+
 
 # a port given to a starting server counts as used for this long, until the server shows up as running
 RESERVE_TIME = 300
@@ -32,25 +38,26 @@ _lock = asyncio.Lock()
 
 
 def is_active(server_id: str) -> bool:
-    return ADDRESS_ENABLED and bool(DOMAINS) and ADDRESS_FIXED.get(server_id) != KEEP_PORT
+    return get('address.enabled') and bool(get('address.domains')) and _fixed().get(server_id) != KEEP_PORT
 
 
 def _candidates(server_id: str) -> list[tuple[str, int]]:
     """
     The domains the server may get, in order: only its fixed domain, or all domains not fixed to other servers.
     """
-    fixed = ADDRESS_FIXED.get(server_id)
+    domains = _domains()
+    fixed = _fixed().get(server_id)
     if fixed and fixed != KEEP_PORT:
-        own = [(domain, port) for domain, port in DOMAINS if domain == fixed]
+        own = [(domain, port) for domain, port in domains if domain == fixed]
         if own:
             return own
         # the fixed domain was removed from the list: fall back to a free one
-    taken = {choice for other, choice in ADDRESS_FIXED.items() if other != server_id}
-    return [(domain, port) for domain, port in DOMAINS if domain not in taken]
+    taken = {choice for other, choice in _fixed().items() if other != server_id}
+    return [(domain, port) for domain, port in domains if domain not in taken]
 
 
 def domain_for_port(port) -> str | None:
-    return next((domain for domain, domain_port in DOMAINS if str(domain_port) == str(port)), None)
+    return next((domain for domain, domain_port in _domains() if str(domain_port) == str(port)), None)
 
 
 def display_address(server: dict) -> str:
@@ -129,7 +136,7 @@ async def prepare_start(server_id: str) -> tuple[str | None, str | None]:
         candidates = _candidates(server_id)
         free = [(domain, port) for domain, port in candidates if port not in used]
         if not free:
-            if len(candidates) == 1 and ADDRESS_FIXED.get(server_id) == candidates[0][0]:
+            if len(candidates) == 1 and _fixed().get(server_id) == candidates[0][0]:
                 return None, f'{candidates[0][0]} is used by another server, stop it first'
             return None, 'all domains are in use, stop a server first'
         domain, port = free[0]

@@ -19,7 +19,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
-from core.helper import (check_config, check_server_id, get_cached_servers, get_running_server_list,
+from core.config import RESTART_FIELDS
+from core.helper import (clear_server_cache, check_config, check_server_id, get_cached_servers, get_running_server_list,
                          get_stopped_server_list)
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
 from core.embeds import new_embed, status_embed
@@ -31,33 +32,18 @@ from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
 from core.motd import set_random_motd
 from core.address import has_free_domain, prepare_start
-from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_IDLE_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
-                            SESSION_ENABLED, STATUS_CHANNEL_ID,
-                            STATUS_UPDATE_INTERVAL, WEB_PORT)
-
-SERVER_URL = get('crafty.url')
+from core.constants import (GUILD_ID, WEB_PORT, auto_stop_enabled, auto_stop_idle_time, session_channel_id,
+                            session_enabled, status_channel_id, status_update_interval)
 
 
 class CraftyBot(commands.Bot):
     async def setup_hook(self) -> None:
         # setup_hook runs once per process, unlike on_ready which fires again after every reconnect
-        if AUTO_STOP_ENABLED:
-            print('auto stop enabled')
-            auto_stop.start()
-        else:
-            print('auto stop disabled')
-
-        if STATUS_CHANNEL_ID:
-            print(f'status embed enabled in channel {STATUS_CHANNEL_ID}')
-            update_status.start()
-
-        if sessions is not None:
-            print('server start embeds enabled')
-            update_sessions.start()
-
-        if BACKUP_ENABLED:
-            print('automatic backups enabled')
-            backup_loop.start()
+        # the loops always run and check their setting on every run, so it can be changed without a restart
+        auto_stop.start()
+        update_status.start()
+        update_sessions.start()
+        backup_loop.start()
 
         # Synchronize slash commands on startup
         try:
@@ -72,7 +58,7 @@ intents.message_content = True
 bot = CraftyBot(command_prefix='>', intents=intents, help_command=None)
 bot.add_check(command_channel_check)
 
-status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
+status_board = StatusBoard(bot, status_channel_id)
 backup_scheduler = BackupScheduler()
 
 # when each running server was first seen without players (epoch seconds)
@@ -83,20 +69,23 @@ def auto_stop_eta(server_id: str) -> float | None:
     """
     Time (epoch seconds) when auto stop will stop the server if nobody joins, or None if auto stop is off.
     """
-    if not AUTO_STOP_ENABLED:
+    if not auto_stop_enabled():
         return None
-    return empty_since.get(server_id, time.time()) + AUTO_STOP_IDLE_TIME
+    return empty_since.get(server_id, time.time()) + auto_stop_idle_time()
 
 
-sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta, set_random_motd) if SESSION_ENABLED else None
+sessions = SessionTracker(bot, session_channel_id, auto_stop_eta, set_random_motd)
 
 
-# stop servers AUTO_STOP_IDLE_TIME after the last player left (or after the start if nobody joined)
+# stop servers auto_stop.idle_minutes after the last player left (or after the start if nobody joined)
 @tasks.loop(seconds=60)
 async def auto_stop():
     """
-    Automatically stop servers that have been empty for AUTO_STOP_IDLE_TIME.
+    Automatically stop servers that have been empty for auto_stop.idle_minutes.
     """
+    if not auto_stop_enabled():
+        empty_since.clear()
+        return
     try:
         servers = await get_cached_servers()
         if servers is None:
@@ -116,20 +105,19 @@ async def auto_stop():
                 continue
 
             since = empty_since.setdefault(server_id, time.time())
-            if time.time() - since >= AUTO_STOP_IDLE_TIME:
-                if sessions is not None:
-                    sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
+            if time.time() - since >= auto_stop_idle_time():
+                sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
                 if await stop_server(server_id):
                     print(f'auto stop: stopped {server["server_name"]}')
                     empty_since.pop(server_id, None)
-                elif sessions is not None:
+                else:
                     sessions.set_stop_reason(server_id, None)
     except Exception:
         # keep the loop alive on unexpected errors
         traceback.print_exc()
 
 
-@tasks.loop(seconds=STATUS_UPDATE_INTERVAL)
+@tasks.loop(seconds=status_update_interval())
 async def update_status():
     """
     Update the status embed in the status channel.
@@ -146,6 +134,8 @@ async def update_sessions():
     """
     Update the server start embeds.
     """
+    if not session_enabled():
+        return
     try:
         await sessions.tick()
     except Exception:
@@ -173,7 +163,7 @@ async def wait_until_ready():
 async def on_ready():
     print('Bot is ready. {}'.format(bot.user))
     print("Crafty Bot version 0.2.0")
-    print("Server URL: {}".format(SERVER_URL))
+    print("Server URL: {}".format(get('crafty.url')))
     print("GUILD ID: {}".format(GUILD_ID))
 
 
@@ -240,7 +230,7 @@ async def start(ctx, server_id):
 
     backup = needs_start_backup(server_id)
     session = None
-    if sessions is not None:
+    if session_enabled():
         server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),
                       {'server_id': server_id, 'server_name': server_id})
         # the embed is the public answer, as a reply to the message for > commands
@@ -316,13 +306,11 @@ async def stop(ctx, server_id):
     if not await check_can_stop(ctx, server_id, 'stop'):
         return
 
-    if sessions is not None:
-        sessions.set_stop_reason(server_id, f'/stop by {ctx.author.mention}')
+    sessions.set_stop_reason(server_id, f'/stop by {ctx.author.mention}')
     if await stop_server(server_id):
         await ctx.reply('Server stopped', ephemeral=True)
     else:
-        if sessions is not None:
-            sessions.set_stop_reason(server_id, None)
+        sessions.set_stop_reason(server_id, None)
         await ctx.reply('failed to stop server', ephemeral=True)
 
 
@@ -341,8 +329,7 @@ async def restart(ctx, server_id):
     if not await check_can_stop(ctx, server_id, 'restart'):
         return
 
-    if sessions is not None:
-        sessions.mark_restart(server_id)
+    sessions.mark_restart(server_id)
     await set_random_motd(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
@@ -382,8 +369,26 @@ def restart_process():
     os.execv(sys.executable, [sys.executable, '-u', os.path.abspath(__file__)])
 
 
+def apply_config(changed: set[str]) -> bool:
+    """
+    Take over settings saved in the web interface. Most are read on every use, so only a few need a restart.
+
+    Returns:
+        bool: True if the bot restarts.
+    """
+    if changed & RESTART_FIELDS or not bot.is_ready():
+        # give the browser time to receive the response before restarting
+        asyncio.get_running_loop().call_later(1, restart_process)
+        return True
+    clear_server_cache()
+    if 'status.update_interval' in changed:
+        update_status.change_interval(seconds=status_update_interval())
+    print(f'config: applied {len(changed)} changed settings without restart')
+    return False
+
+
 async def main():
-    await WebInterface(bot, on_saved=restart_process).start(WEB_PORT)
+    await WebInterface(bot, on_saved=apply_config).start(WEB_PORT)
 
     if not check_config():
         print(f'Open the web interface on port {WEB_PORT} to finish the setup')

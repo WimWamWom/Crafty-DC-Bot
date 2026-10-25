@@ -412,6 +412,8 @@ class BackupScheduler:
                 print('backup: failed to get server list, retrying next run')
                 return
             await record_activity(servers)
+            if not get('backup.enabled'):
+                return
             if time.time() - self.last_sync >= SYNC_INTERVAL:
                 for server in servers:
                     await maintain_server(server['server_id'])
