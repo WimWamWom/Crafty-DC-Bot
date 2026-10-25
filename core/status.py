@@ -15,9 +15,14 @@ class StatusBoard:
     Posts the status embed once and edits the same message on every update.
     """
 
-    def __init__(self, bot: discord.Client, channel_id: int):
+    def __init__(self, bot: discord.Client, channel_id):
+        """
+        Args:
+            channel_id: Function that returns the status channel (0 = off), read on every update.
+        """
         self.bot = bot
-        self.channel_id = channel_id
+        self._channel_id = channel_id
+        self.channel_id = 0
         self.message: discord.Message | None = None
 
     async def _get_channel(self) -> discord.abc.Messageable:
@@ -37,6 +42,13 @@ class StatusBoard:
         return None
 
     async def update(self) -> None:
+        channel_id = self._channel_id()
+        if channel_id != self.channel_id:
+            # switched off or moved to another channel: look for the message there
+            self.channel_id = channel_id
+            self.message = None
+        if not channel_id:
+            return
         servers = await get_servers()
         if servers is None:
             print('status: failed to get server list')

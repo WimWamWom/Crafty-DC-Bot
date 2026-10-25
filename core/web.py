@@ -2,7 +2,6 @@
 This module contains a simple web interface to edit the bot configuration.
 """
 
-import asyncio
 import base64
 import binascii
 import hmac
@@ -445,10 +444,11 @@ class WebInterface:
 
     Args:
         bot: The Discord bot, used to list channels and roles of the guild.
-        on_saved: Called after the config was saved (restarts the bot).
+        on_saved: Called with the names of the changed settings after the config was saved.
+            Returns True if the bot restarts to apply them.
     """
 
-    def __init__(self, bot: discord.Client, on_saved: Callable[[], None]):
+    def __init__(self, bot: discord.Client, on_saved: Callable[[set[str]], bool]):
         self.bot = bot
         self.on_saved = on_saved
         self.app = web.Application(middlewares=[self.auth_middleware])
@@ -537,15 +537,19 @@ class WebInterface:
         except OSError as e:
             return await self.render(errors=[f'Speichern fehlgeschlagen: {e}'], values=values)
 
-        print('Config saved via web interface, restarting')
-        # give the browser time to receive the response before restarting
-        asyncio.get_running_loop().call_later(1, self.on_saved)
-        return self._page('<div class="notice ok">Gespeichert. Der Bot startet neu, '
-                          'die Seite lädt in ein paar Sekunden neu.</div>',
-                          head='<meta http-equiv="refresh" content="5;url=/">')
+        changed = {name for name in cfg.FIELDS_BY_NAME if values[name] != cfg.config[name]}
+        # the bot reads most settings on every use, so updating the loaded config applies them
+        cfg.config.update(values)
+        if self.on_saved(changed):
+            print('Config saved via web interface, restarting')
+            return self._page('<div class="notice ok">Gespeichert. Für diese Änderung startet der Bot neu, '
+                              'die Seite lädt in ein paar Sekunden neu.</div>',
+                              head='<meta http-equiv="refresh" content="5;url=/">')
+        print('Config saved via web interface')
+        return await self.render(notice='Gespeichert und sofort übernommen.')
 
     async def render(self, errors: list[str] | None = None, values: dict | None = None,
-                     invalid: set[str] | None = None) -> web.Response:
+                     invalid: set[str] | None = None, notice: str | None = None) -> web.Response:
         values = values or cfg.config
         invalid = invalid or set()
         guild = self._guild()
@@ -556,6 +560,8 @@ class WebInterface:
             servers = None
 
         notices = []
+        if notice:
+            notices.append(f'<div class="notice ok">{escape(notice)}</div>')
         if errors:
             notices.append('<div class="notice err">' + '<br>'.join(escape(e) for e in errors) + '</div>')
         missing = cfg.missing_required(cfg.config)
@@ -607,8 +613,8 @@ class WebInterface:
 
         body = (f'<nav class="tabs">{"".join(nav)}</nav>'
                 f'<form method="post" class="content">{"".join(notices)}{"".join(panels)}'
-                f'<div class="savebar"><div class="inner"><small>Speichert alle Bereiche, danach startet der Bot neu.</small>'
-                f'<button type="submit">Speichern und neu starten<span class="go" aria-hidden="true">→</span>'
+                f'<div class="savebar"><div class="inner"><small>Speichert alle Bereiche. Nur Discord-Token, Server-ID und Port brauchen einen Neustart.</small>'
+                f'<button type="submit">Speichern<span class="go" aria-hidden="true">→</span>'
                 f'</button></div></div></form>')
         return self._page(body, state=state)
 

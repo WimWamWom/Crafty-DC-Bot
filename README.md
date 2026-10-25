@@ -80,7 +80,9 @@ python core/main.py
 ## Configuration
 
 All settings are stored in `data/config.yaml`. The file is created on the first start and can be edited by hand
-or in the web interface (`http://<host>:4883`). Saving in the web interface restarts the bot.
+or in the web interface (`http://<host>:4883`). Changes saved in the web interface take effect at once, only the
+Discord token, the Discord server ID and the web interface port restart the bot. Changes made by hand in the file
+need a restart.
 Environment variables (or a `.env` file, see `.env.example`) are only used for settings missing in the file.
 If a required setting is missing, only the web interface starts.
 

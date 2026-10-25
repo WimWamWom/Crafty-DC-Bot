@@ -170,6 +170,10 @@ FIELDS = [
 
 FIELDS_BY_NAME = {f'{field.section}.{field.key}': field for field in FIELDS}
 
+# Settings that only take effect after a restart: the Discord login, the guild the slash commands are registered
+# for and the port of the web interface. Everything else is read on every use.
+RESTART_FIELDS = {'discord.token', 'discord.guild_id', 'web.port'}
+
 # On/off switches and the setting they enable. The selected ID is kept while switched off.
 TOGGLES = {
     'discord.command_channel_enabled': 'discord.command_channel_id',
