@@ -12,7 +12,7 @@ import time
 
 from core.config import KEEP_PORT, get
 from core.constants import API_ENDPOINT
-from core.motd import apply_random_motd, is_active as motd_active
+from core.motd import apply_motd, is_active as motd_active
 from core.network import HttpMethod, is_response_successful, send_request
 from core.properties import get_property, read_properties, set_property, write_properties
 from core.server import get_server_stats, get_servers
@@ -126,7 +126,7 @@ async def prepare_start(server_id: str) -> tuple[str | None, str | None]:
         if motd_active(server_id):
             read = await read_properties(server_id)
             if read is not None:
-                await write_properties(server_id, read[0], apply_random_motd(read[1]))
+                await write_properties(server_id, read[0], apply_motd(read[1], server_id))
         return None, None
 
     async with _lock:
@@ -154,7 +154,7 @@ async def prepare_start(server_id: str) -> tuple[str | None, str | None]:
 
         new_properties = set_property(properties, 'server-port', str(port))
         if motd_active(server_id):
-            new_properties = apply_random_motd(new_properties)
+            new_properties = apply_motd(new_properties, server_id)
         if new_properties != properties and not await write_properties(server_id, path, new_properties):
             if str(crafty_port) != str(port) and str(crafty_port).isdigit():
                 await _set_crafty_port(server_id, int(crafty_port))

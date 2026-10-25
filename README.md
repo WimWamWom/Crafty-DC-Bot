@@ -12,7 +12,8 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
   and why the server stopped (replaces the start/stop webhooks of Crafty)
 - Auto stop for empty servers
 - Automatic backups in Crafty (before start, daily, weekly), only when the server was played
-- Random MOTD (text under the server name in the server list) from your own list, new for every server start
+- Random MOTD (text under the server name in the server list) from your own list, new for every server start,
+  or a fixed MOTD per server
 - Commands limited to one channel, server control limited to one role
 - Choose which Crafty servers the bot shows
 - Web interface on port 4883 for all settings
@@ -110,9 +111,10 @@ If a required setting is missing, only the web interface starts.
 The backup settings (`backup.*`: on/off, how many backups to keep, time, excluded servers and folders) are
 only available in `config.yaml` and the web interface.
 
-The random MOTD (`motd.*`: on/off, the messages, excluded servers) is also only set there. Before every start and
+The MOTD (`motd.*`: on/off, the messages, the MOTD per server) is also only set there. Before every start and
 restart by the bot and after every stop it sees, the bot writes a random message from the list as `motd` into
 `server.properties`. It changes once per server start, not on every refresh of the server list.
+Under "MOTD pro Server" a server can instead get a fixed MOTD that it always shows, or keep its MOTD untouched.
 Use `&a`, `&l` and so on for colors and formatting and `\n` for a second line.
 
 Domains (`address.*`) are set there too. List them as `domain:port`, each pointing to its port with a Minecraft SRV
