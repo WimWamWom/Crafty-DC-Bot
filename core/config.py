@@ -76,7 +76,7 @@ FIELDS = [
           'Nur Mitglieder mit dieser Rolle dürfen /start, /stop und /restart benutzen'),
     Field('servers', 'allowed', 'servers', [], 'ALLOWED_SERVERS', 'Verfügbare Server',
           'Nur angehakte Server zeigt und steuert der Bot (Befehle, Status, Auto-Stop, Backups). Nichts angehakt = alle. '
-          'Mit den Pfeilen änderst du die Reihenfolge, sie gilt überall'),
+          'Am Griff ⠿ ziehst du die Server in die Reihenfolge, die überall gilt'),
     Field('servers', 'order', 'server_order', [], None, 'Reihenfolge',
           'Server-IDs in der Reihenfolge für Befehle, Statusübersicht und Webinterface. Fehlende Server folgen alphabetisch'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',

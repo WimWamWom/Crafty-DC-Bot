@@ -154,9 +154,13 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
                             .motd-row .num { display: none; } }
 /* Server list with arrows to change the order */
 .order-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-.order-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; align-items: center; }
-.order-row .mc-format { height: 38px; }
-.order-row:first-child [data-move="-1"], .order-row:last-child [data-move="1"] { visibility: hidden; }
+.order-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; }
+.order-row.dragging { opacity: .6; }
+.order-row.dragging .check { border-color: var(--accent); }
+.drag { width: 38px; height: 38px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 2px;
+        background: var(--plate); color: var(--muted); font-size: 18px; cursor: grab; touch-action: none; box-shadow: none; }
+.drag:hover, .drag:focus-visible { border-color: var(--accent); color: var(--accent); transform: none; box-shadow: none; }
+.order-row.dragging .drag { cursor: grabbing; }
 /* Domain per server: one row per server with a dropdown */
 .domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
@@ -372,15 +376,44 @@ document.querySelectorAll('.motd-server').forEach(function (select) {
   update();
   show(false);
 });
-// server order: arrows move a row, the hidden inputs send the new order with the form
+// server order: rows are moved by dragging, the hidden inputs send the new order with the form
 document.querySelectorAll('.order-rows').forEach(function (rows) {
-  rows.addEventListener('click', function (event) {
-    var button = event.target.closest('[data-move]');
-    if (!button) return;
-    var row = button.closest('.order-row');
-    if (button.dataset.move === '-1' && row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling);
-    if (button.dataset.move === '1' && row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row);
-    button.focus();
+  // drag and drop with the handle, for mouse and touch
+  var dragged = null;
+  rows.addEventListener('pointerdown', function (event) {
+    var handle = event.target.closest('.drag');
+    if (!handle) return;
+    event.preventDefault();
+    dragged = handle.closest('.order-row');
+    dragged.classList.add('dragging');
+    handle.setPointerCapture(event.pointerId);
+  });
+  rows.addEventListener('pointermove', function (event) {
+    if (!dragged) return;
+    // put the row before the first row whose middle is below the pointer
+    var next = Array.from(rows.children).find(function (row) {
+      var box = row.getBoundingClientRect();
+      return row !== dragged && event.clientY < box.top + box.height / 2;
+    });
+    if (next) { if (next !== dragged.nextElementSibling) rows.insertBefore(dragged, next); }
+    else if (dragged !== rows.lastElementChild) rows.appendChild(dragged);
+  });
+  var drop = function () {
+    if (dragged) dragged.classList.remove('dragging');
+    dragged = null;
+  };
+  rows.addEventListener('pointerup', drop);
+  rows.addEventListener('pointercancel', drop);
+  // keyboard: arrow keys on the handle move the row
+  rows.addEventListener('keydown', function (event) {
+    var handle = event.target.closest('.drag');
+    if (!handle) return;
+    var row = handle.closest('.order-row');
+    if (event.key === 'ArrowUp' && row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling);
+    else if (event.key === 'ArrowDown' && row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row);
+    else return;
+    event.preventDefault();
+    handle.focus();
   });
   var sorted = function () {
     return Array.from(rows.children).sort(function (a, b) {
@@ -965,9 +998,8 @@ class WebInterface:
                 rows.append(f'<div class="order-row"><label class="check"><input type="checkbox" name="{name}" '
                             f'value="{server_id}"{checked}>{escape(server["server_name"])}</label>'
                             f'<input type="hidden" name="{order_name}" value="{server_id}">'
-                            f'<button type="button" class="mc-format" data-move="-1" aria-label="nach oben">↑</button>'
-                            f'<button type="button" class="mc-format" data-move="1" aria-label="nach unten">↓</button>'
-                            f'</div>')
+                            f'<button type="button" class="drag" title="Ziehen zum Sortieren" '
+                            f'aria-label="{escape(server["server_name"])} verschieben (Pfeiltasten)">⠿</button></div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>'
                     f'<input type="hidden" name="{name}.present" value="1">'
                     f'<input type="hidden" name="{order_name}.present" value="1">'
