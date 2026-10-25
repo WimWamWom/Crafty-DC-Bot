@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <Container>
   <Name>Crafty Discord Bot</Name>
-  <Repository>crafty-discord-bot:latest</Repository>
-  <Registry>local</Registry>
+  <Repository>ghcr.io/wimwamwom/crafty-dc-bot:latest</Repository>
+  <Registry>https://github.com/WimWamWom/Crafty-DC-Bot/pkgs/container/crafty-dc-bot</Registry>
   <Network>bridge</Network>
   <Privileged>false</Privileged>
-  <Support>https://github.com/Two-Play/Crafty-Discord-bot</Support>
+  <Support>https://github.com/WimWamWom/Crafty-DC-Bot</Support>
   <Overview>Crafty Discord Bot Controller für Unraid</Overview>
   <WebUI>http://[IP]:[PORT:4883]/</WebUI>
   <Category>Utilities</Category>
