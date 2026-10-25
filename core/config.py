@@ -24,7 +24,7 @@ TRUE_VALUES = ('1', 'true', 'yes', 'on')
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role, servers, list, time, weekday or timezone
+    # str, secret, int, bool, channel, role, servers, list, lines, time, weekday or timezone
     kind: str
     default: object
     env: str | None
@@ -43,6 +43,7 @@ SECTIONS = {
     'status': 'Status-Embed',
     'session': 'Server-Embeds',
     'backup': 'Backups',
+    'motd': 'MOTD',
     'web': 'Webinterface',
 }
 
@@ -134,6 +135,21 @@ FIELDS = [
           'Wird nach dem Backup an laufende Server gesendet. Leer = keiner'),
     Field('backup', 'timeout', 'int', 600, None, 'Maximale Wartezeit beim Start (Sekunden)',
           'So lange wartet /start auf das Backup. Danach startet der Server trotzdem'),
+    Field('motd', 'enabled', 'bool', False, None, 'Zufällige MOTD aktiv',
+          'Vor jedem Start und Neustart durch den Bot und nach jedem Stopp schreibt der Bot eine zufällige '
+          'Nachricht aus der Liste als motd in die server.properties. Sie wechselt also pro Serverstart, '
+          'nicht bei jedem Neuladen der Serverliste. Der API-Token braucht dafür das Recht FILES'),
+    Field('motd', 'messages', 'lines', [], None, 'Nachrichten',
+          'Eine Nachricht pro Zeile. \\n im Text = zweite Zeile, &a, &l usw. = Farben und Formatierung',
+          details='Farben:\n'
+                  '&0 Schwarz, &1 Dunkelblau, &2 Dunkelgrün, &3 Türkis, &4 Dunkelrot, &5 Lila, &6 Gold, &7 Grau\n'
+                  '&8 Dunkelgrau, &9 Blau, &a Grün, &b Hellblau, &c Rot, &d Pink, &e Gelb, &f Weiß\n'
+                  'Formatierung:\n'
+                  '&l fett, &o kursiv, &n unterstrichen, &m durchgestrichen, &k verschlüsselt, &r zurücksetzen\n'
+                  'Beispiel:\n'
+                  '&6&lWimWamWom &7| &aHeute mit Creeper-Garantie\\n&eKomm vorbei!'),
+    Field('motd', 'excluded_servers', 'servers', [], None, 'Server ohne zufällige MOTD',
+          'Bei diesen Servern lässt der Bot die motd in der server.properties unverändert'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
           'Port des Webinterfaces. In Docker 4883 lassen und stattdessen das Port-Mapping ändern'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
@@ -192,6 +208,12 @@ def parse_value(field: Field, raw):
         if isinstance(raw, str):
             raw = raw.splitlines()
         return [str(item).strip().strip('/') for item in raw if str(item).strip().strip('/')]
+    if field.kind == 'lines':
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            raw = raw.splitlines()
+        return [str(item).strip() for item in raw if str(item).strip()]
     if field.kind == 'servers':
         if raw is None:
             return []

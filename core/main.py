@@ -27,6 +27,7 @@ from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
+from core.motd import set_random_motd
 from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
                             SESSION_ENABLED, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
@@ -87,7 +88,7 @@ def auto_stop_eta(server_id: str) -> float | None:
     return next_check.timestamp() + (remaining_checks - 1) * AUTO_STOP_SLEEP_TIME
 
 
-sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta) if SESSION_ENABLED else None
+sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta, set_random_motd) if SESSION_ENABLED else None
 
 
 # stop servers after AUTO_STOP_SLEEP_TIME to 2x AUTO_STOP_SLEEP_TIME of inactivity (no players online)
@@ -257,6 +258,7 @@ async def start(ctx, server_id):
         elif not backup_ok:
             await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
 
+    await set_random_motd(server_id)
     if await server_action(server_id, 'start_server'):
         mark_started(server_id)
         if session is None:
@@ -331,6 +333,7 @@ async def restart(ctx, server_id):
 
     if sessions is not None:
         sessions.mark_restart(server_id)
+    await set_random_motd(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
     else:

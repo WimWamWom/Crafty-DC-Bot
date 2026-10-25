@@ -220,13 +220,17 @@ TABS = {
         ('Server ohne Backups', ['backup.excluded_servers', 'backup.delete_excluded']),
         ('Aufräumen', ['backup.delete_after_days']),
     ]),
+    'motd': ('MOTD', 'Ein zufälliger Text unter dem Servernamen in der Serverliste, neu bei jedem Start.', [
+        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
+        ('Ausnahmen', ['motd.excluded_servers']),
+    ]),
     'web': ('Webinterface', 'Zugang zu dieser Seite.', [
         ('Zugang', ['web.port', 'web.password']),
     ]),
 }
 
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list')
+WIDE_KINDS = ('bool', 'servers', 'list', 'lines')
 
 
 class WebInterface:
@@ -456,7 +460,7 @@ class WebInterface:
             return (f'{open_tag}{label}<select id="{name}" name="{name}">'
                     f'{"".join(html_options)}</select>{help_text}</div>')
 
-        if field.kind == 'list':
+        if field.kind in ('list', 'lines'):
             return (f'{open_tag}{label}<textarea id="{name}" name="{name}">'
                     f'{escape(chr(10).join(value))}</textarea>{help_text}</div>')
 
