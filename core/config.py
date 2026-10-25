@@ -158,8 +158,8 @@ FIELDS = [
           'Die MOTD ist der Text unter dem Servernamen in der Serverliste. Bei jedem Start setzt der Bot eine '
           'zufällige Nachricht aus der Liste. Braucht das Recht FILES'),
     Field('motd', 'messages', 'lines', [], None, 'Nachrichten',
-          'Eine Nachricht pro Zeile. Farben und Formatierung mit &-Codes (siehe Hinweise), zweite Zeile mit \\n. '
-          'Unten siehst du die Vorschau'),
+          'Jede Zeile zeigt eine Nachricht so, wie sie in der Serverliste aussieht. Mit Bearbeiten '
+          'änderst du sie samt Farben, Speichern übernimmt alle Änderungen'),
     Field('motd', 'excluded_servers', 'servers', [], None, 'Server ohne zufällige MOTD',
           'Diese Server behalten ihre MOTD'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
