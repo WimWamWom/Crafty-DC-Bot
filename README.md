@@ -150,7 +150,7 @@ A ready-made image is built automatically on every push to `main` and published 
 as `ghcr.io/wimwamwom/crafty-dc-bot:latest`. Run it with a volume for the config and the web interface port:
 
 ```bash
-docker run -d --name crafty-bot -p 4883:4883 -v /path/to/data:/usr/src/app/data ghcr.io/wimwamwom/crafty-dc-bot:latest
+docker run -d --name crafty-bot -p 4883:4883 -v /path/to/data:/data ghcr.io/wimwamwom/crafty-dc-bot:latest
 ```
 
 To build it yourself instead, run `docker build -t crafty-discord-bot .` and use `crafty-discord-bot` as the image.
@@ -168,7 +168,7 @@ services:
     ports:
       - "4883:4883"
     volumes:
-      - ./data:/usr/src/app/data
+      - ./data:/data
     restart: unless-stopped
 ```
 
