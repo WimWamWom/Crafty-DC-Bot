@@ -2,6 +2,8 @@
 This module builds the Discord embeds for the server information.
 """
 
+import re
+
 import discord
 
 from core.constants import LOGO_URL
@@ -41,15 +43,30 @@ def player_text(stats: dict) -> str:
     return text
 
 
+# bytes per unit Crafty may use in its memory value
+MEMORY_UNITS = {'B': 1, 'KB': 1024, 'MB': 1024 ** 2, 'GB': 1024 ** 3, 'TB': 1024 ** 4}
+
+
+def memory_gb(mem) -> str:
+    """
+    Format the memory usage from Crafty in GB. Crafty sends either a number in MB or a text like "834.5MB".
+    """
+    if isinstance(mem, (int, float)):
+        size = mem * MEMORY_UNITS['MB']
+    else:
+        match = re.fullmatch(r'\s*([\d.]+)\s*([KMGT]?B)\s*', str(mem or ''), re.IGNORECASE)
+        if not match:
+            return str(mem) if mem else '?'
+        size = float(match[1]) * MEMORY_UNITS[match[2].upper()]
+    return f'{size / MEMORY_UNITS["GB"]:.1f} GB'
+
+
 def add_usage_fields(embed: discord.Embed, stats: dict) -> None:
     """
     Add the CPU and RAM usage of a server to the embed.
     """
     embed.add_field(name='CPU', value=f"{stats.get('cpu', '?')}%")
-    mem = stats.get('mem', '?')
-    if isinstance(mem, (int, float)):
-        mem = f'{mem} MB'
-    embed.add_field(name='RAM', value=f"{mem} ({stats.get('mem_percent', '?')}%)")
+    embed.add_field(name='RAM', value=f"{memory_gb(stats.get('mem'))} ({stats.get('mem_percent', '?')}%)")
 
 
 def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
