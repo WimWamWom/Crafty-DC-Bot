@@ -1,4 +1,4 @@
-import json
+import asyncio
 import os
 import requests
 from requests import Response
@@ -39,7 +39,7 @@ def send_request(path: str, verify: bool = False, timeout: int = 6, data: dict =
     Returns:
         requests.Response: The HTTP response object.
     """
-    url = os.environ['SERVER_URL'] + path
+    url = os.environ['SERVER_URL'].rstrip('/') + path
     headers = {'Authorization': 'Bearer ' + os.environ['CRAFTY_TOKEN']}
     try:
         response = requests.request(method.value, url, headers=headers, verify=verify, timeout=timeout, json=data)
@@ -48,9 +48,11 @@ def send_request(path: str, verify: bool = False, timeout: int = 6, data: dict =
         print(f"Request failed: {e}")
         return Response()
 
-def get_json_response(path: str, error_message: str = "Error while response", method: HttpMethod = HttpMethod.GET, data: dict = None) -> json:
+async def get_json_response(path: str, error_message: str = "Error while response", method: HttpMethod = HttpMethod.GET, data: dict = None) -> dict:
     """
     Send an HTTP request with the specified method to the given path and return the response as JSON.
+
+    The blocking request runs in a worker thread so it does not stall the Discord event loop.
 
     Args:
         method (HttpMethod, optional): The HTTP method to use. Defaults to HttpMethod.GET.
@@ -61,8 +63,12 @@ def get_json_response(path: str, error_message: str = "Error while response", me
     Returns:
         dict: The JSON response as a dictionary. Returns an empty dictionary if the response is not successful.
     """
-    response = send_request(path, method=method, data=data)
+    response = await asyncio.to_thread(send_request, path, method=method, data=data)
     if not is_response_successful(response):
         print(error_message)
         return {}
-    return response.json()
+    try:
+        return response.json()
+    except ValueError:
+        print(f"{error_message}: invalid JSON")
+        return {}

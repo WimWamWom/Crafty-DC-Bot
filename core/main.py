@@ -3,12 +3,12 @@ This is the main file of the bot. It contains the
 main loop and the event handlers.
 """
 
-import asyncio
 import os
 import sys
+import traceback
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 from discord.ext.commands import is_owner
 from dotenv import load_dotenv
@@ -17,88 +17,116 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 # Load environment variables from .env file
 load_dotenv()
-from core.helper import check_env_vars, check_server_id, get_server_list
+from core.helper import check_env_vars, check_server_id, get_server_list, get_cached_servers, get_server_name
 
 check_env_vars()
 
-from core.network import get_json_response, HttpMethod
-from core.printing import print_server_info, print_server_status
-from core.server import is_server_running, stop_server, get_player_count
+from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
+from core.embeds import server_list_embed, server_stats_embed
+from core.status import StatusBoard
+from core.checks import command_channel_check, control_role
 from core.custom_help_command import CustomHelpCommand
-from core.constants import AUTO_STOP_SLEEP_TIME, GUILD_ID, API_ENDPOINT
+from core.constants import AUTO_STOP_SLEEP_TIME, GUILD_ID, STATUS_CHANNEL_ID, STATUS_UPDATE_INTERVAL
 
 SERVER_URL = os.environ['SERVER_URL']
-if 'USERNAME' in os.environ and 'PASSWORD' in os.environ:
-    USERNAME = os.environ['USERNAME']
-    PASSWORD = os.environ['PASSWORD']
+ENABLE_AUTO_STOP = os.environ.get('ENABLE_AUTO_STOP_SERVER', '').lower() in ('1', 'true', 'yes', 'on')
+
+
+class CraftyBot(commands.Bot):
+    async def setup_hook(self) -> None:
+        # setup_hook runs once per process, unlike on_ready which fires again after every reconnect
+        if ENABLE_AUTO_STOP:
+            print('auto stop enabled')
+            auto_stop.start()
+        else:
+            print('auto stop disabled')
+
+        if STATUS_CHANNEL_ID:
+            print(f'status embed enabled in channel {STATUS_CHANNEL_ID}')
+            update_status.start()
+
+        # Synchronize slash commands on startup
+        try:
+            synced = await self.tree.sync(guild=discord.Object(id=GUILD_ID))
+            print(f"{len(synced)} commands synced on startup.")
+        except Exception as e:
+            print(f"Failed to sync commands on startup: {e}")
+
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='>', intents=intents, help_command=CustomHelpCommand())
+bot = CraftyBot(command_prefix='>', intents=intents, help_command=CustomHelpCommand())
+bot.add_check(command_channel_check)
+
+status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
+
+# track consecutive zero-player checks per server
+consecutive_zero = {}
 
 
-# stop server after 1 hour of inactivity (no players online)
+# stop servers after AUTO_STOP_SLEEP_TIME to 2x AUTO_STOP_SLEEP_TIME of inactivity (no players online)
+@tasks.loop(seconds=AUTO_STOP_SLEEP_TIME)
 async def auto_stop():
     """
     Automatically stop servers that have been inactive for a certain period of time.
     """
-    # track consecutive zero-player checks per server
-    consecutive_zero = {}
-    while True:
-        # get list of servers ids and loop through them and add only the ones that are running
-        data = get_json_response(API_ENDPOINT,
-                                 'failed to get server list')
-        if not data:
-            print('failed to get server list')
+    try:
+        servers = await get_cached_servers()
+        if servers is None:
+            print('auto stop: failed to get server list, retrying next run')
             return
-        server_ids = [server['server_id'] for server in data['data']]
 
-        for server_id in server_ids:
+        for server in servers:
+            server_id = server['server_id']
+            stats = await get_server_stats(server_id)
+            # skip counting on error
+            if stats is None:
+                continue
+
             # if server not running, clear any counters and continue
-            if not is_server_running(server_id):
+            if not stats.get('running'):
                 consecutive_zero.pop(server_id, None)
                 continue
 
-            player_count = get_player_count(server_id)
-            # get_player_count returns -1 on error; skip counting in that case
-            if player_count == -1:
-                continue
-
-            if player_count == 0:
+            if stats.get('online', 0) == 0:
                 consecutive_zero[server_id] = consecutive_zero.get(server_id, 0) + 1
                 # require two consecutive checks with 0 players before stopping
                 if consecutive_zero[server_id] >= 2:
-                    stop_server(server_id)
+                    if await stop_server(server_id):
+                        print(f'auto stop: stopped {server["server_name"]}')
                     consecutive_zero.pop(server_id, None)
             else:
                 # players online -> reset counter
                 consecutive_zero[server_id] = 0
+    except Exception:
+        # keep the loop alive on unexpected errors
+        traceback.print_exc()
 
-        await asyncio.sleep(AUTO_STOP_SLEEP_TIME)  # task runs every hour
+
+@tasks.loop(seconds=STATUS_UPDATE_INTERVAL)
+async def update_status():
+    """
+    Update the status embed in the status channel.
+    """
+    try:
+        await status_board.update()
+    except Exception:
+        # keep the loop alive on unexpected errors (e.g. missing permissions)
+        traceback.print_exc()
+
+
+@auto_stop.before_loop
+@update_status.before_loop
+async def wait_until_ready():
+    await bot.wait_until_ready()
 
 
 @bot.event
 async def on_ready():
     print('Bot is ready. {}'.format(bot.user))
-    print("Crafty Bot version 0.1.1")
+    print("Crafty Bot version 0.2.0")
     print("Server URL: {}".format(SERVER_URL))
     print("GUILD ID: {}".format(GUILD_ID))
-
-    try:
-        # accept common truthy values (case-insensitive) and run auto_stop in background
-        if os.environ.get('ENABLE_AUTO_STOP_SERVER', '').lower() in ('1', 'true', 'yes', 'on'):
-            print('auto stop enabled')
-            bot.loop.create_task(auto_stop())
-        else:
-            print('auto stop disabled')
-    except Exception as e:
-        print(e)
-    # Synchronize slash commands on startup
-    try:
-        synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-        print(f"{len(synced)} commands synced on startup.")
-    except Exception as e:
-        print(f"Failed to sync commands on startup: {e}")
 
 
 @bot.hybrid_command(name='sync', description='Sync slash commands')
@@ -107,51 +135,20 @@ async def on_ready():
 async def sync(ctx) -> None:
     print('sync')
     synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    # add commands to the app commands
     await ctx.reply("{} commands synced".format(len(synced)), ephemeral=True)
-
-
-@bot.hybrid_command(name='clear', description='Clear all slash commands')
-@app_commands.guilds(discord.Object(id=GUILD_ID))
-@is_owner()
-async def clear(ctx) -> None:
-    print('clear')
-    bot.tree.clear_commands(guild=discord.Object(id=GUILD_ID))
-    await ctx.reply("All commands cleared", ephemeral=True)
-
-
-@bot.hybrid_command(name='commands', description='Get all slash commands')
-@app_commands.guilds(discord.Object(id=GUILD_ID))
-@is_owner()
-async def get_commands(ctx) -> None:
-    print('commands')
-    get_all_commands = bot.tree.get_commands(guild=discord.Object(id=GUILD_ID))
-    await ctx.reply(f"Got {len(get_all_commands)} commands", ephemeral=True)
-
-
-@bot.hybrid_command(name='get_token', description='get token if not set (not recommended)')
-@app_commands.guilds(discord.Object(id=GUILD_ID))
-@is_owner()
-async def get_token(ctx):
-    print('get_token')
-
-    data = get_json_response('/api/v2/auth/login', 'failed to get token')
-    if not data:
-        await ctx.reply('failed to get token', ephemeral=True)
-        return
-
-    os.environ['CRAFTY_TOKEN'] = data['data']['token']
-    await ctx.send('Token successfully retrieved', ephemeral=True)
 
 
 @bot.hybrid_command(name='list', description='get server list')
 @app_commands.guilds(discord.Object(id=GUILD_ID))  # get the list of servers
 async def get_list(ctx):
     print('servers')
-    data = get_json_response('/api/v2/servers', 'failed to get server list')
-    server_info_text = print_server_info(data)
+    await ctx.defer(ephemeral=True)
+    servers = await get_cached_servers()
+    if servers is None:
+        await ctx.reply('failed to get server list', ephemeral=True)
+        return
 
-    await ctx.reply(f"Serverinformationen:\n{server_info_text}", ephemeral=True)
+    await ctx.reply(embed=server_list_embed(servers), ephemeral=True)
 
 
 # get statistics of a server
@@ -164,61 +161,80 @@ async def stats(ctx, server_id):
     if not await check_server_id(server_id, ctx):
         return
 
-    data = get_json_response(API_ENDPOINT + str(server_id) + '/stats', 'failed to get server stats')
-    if not data:
+    await ctx.defer(ephemeral=True)
+    data = await get_server_stats(server_id)
+    if data is None:
         await ctx.reply('failed to get server stats', ephemeral=True)
         return
 
-    server_info_text = print_server_status(data)
-    await ctx.reply(f"Serverinformationen:\n{server_info_text}", ephemeral=True)
+    await ctx.reply(embed=server_stats_embed(await get_server_name(server_id), data), ephemeral=True)
+
 
 # start a server
 @bot.hybrid_command(name='start', description='start a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
 @app_commands.autocomplete(server_id=get_server_list)
+@control_role()
 async def start(ctx, server_id):
     print('start')
 
     if not await check_server_id(server_id, ctx):
         return
 
+    await ctx.defer(ephemeral=True)
     # check if server is already running
-    if is_server_running(server_id, ctx):
+    running = await is_server_running(server_id)
+    if running is None:
+        await ctx.reply('failed to get server stats', ephemeral=True)
+        return
+    if running:
         await ctx.reply('Server already running', ephemeral=True)
         return
 
-    data = get_json_response(API_ENDPOINT + str(server_id) + '/action/start_server',
-                             'failed to start server', method=HttpMethod.POST)
-    if not data:
+    if await server_action(server_id, 'start_server'):
+        await ctx.reply('Server started', ephemeral=True)
+    else:
         await ctx.reply('failed to start server', ephemeral=True)
-        return
 
-    if data['status'] == "ok":
-       await ctx.reply('Server started', ephemeral=True)
+
+async def check_can_stop(ctx, server_id, action: str) -> bool:
+    """
+    Check that the server is running and no players are online, and tell the user if not.
+    """
+    running = await is_server_running(server_id)
+    if running is None:
+        await ctx.reply('failed to get server stats', ephemeral=True)
+        return False
+    if not running:
+        await ctx.reply('Server already stopped', ephemeral=True)
+        return False
+
+    player_count = await get_player_count(server_id)
+    if player_count == -1:
+        await ctx.reply('failed to get server stats', ephemeral=True)
+        return False
+    if player_count != 0:
+        await ctx.reply(f'cannot {action} server: {player_count} Player(s) online', ephemeral=True)
+        return False
+    return True
 
 
 # stop a server
 @bot.hybrid_command(name='stop', description='stop a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
 @app_commands.autocomplete(server_id=get_server_list)
+@control_role()
 async def stop(ctx, server_id):
     print('stop')
 
     if not await check_server_id(server_id, ctx):
         return
 
-    # check if server is already stopped
-    if not is_server_running(server_id, ctx):
-        await ctx.reply('Server already stopped', ephemeral=True)
+    await ctx.defer(ephemeral=True)
+    if not await check_can_stop(ctx, server_id, 'stop'):
         return
 
-    # check if player is online
-    player_count = get_player_count(server_id, ctx)
-    if player_count != 0:
-        await ctx.reply(f'cannot stop server: {player_count} Player(s) online', ephemeral=True)
-        return
-
-    if stop_server(server_id):
+    if await stop_server(server_id):
         await ctx.reply('Server stopped', ephemeral=True)
     else:
         await ctx.reply('failed to stop server', ephemeral=True)
@@ -228,49 +244,45 @@ async def stop(ctx, server_id):
 @bot.hybrid_command(name='restart', description='restart a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
 @app_commands.autocomplete(server_id=get_server_list)
+@control_role()
 async def restart(ctx, server_id):
     print('restart')
 
     if not await check_server_id(server_id, ctx):
         return
 
-    # check if server is already stopped
-    if not is_server_running(server_id, ctx):
-        await ctx.reply('Server already stopped', ephemeral=True)
+    await ctx.defer(ephemeral=True)
+    if not await check_can_stop(ctx, server_id, 'restart'):
         return
 
-    # check if player is online
-    player_count = get_player_count(server_id, ctx)
-    if player_count != 0:
-        await ctx.reply(f'cannot restart server: {player_count} Player(s) online', ephemeral=True)
-        return
-
-    if stop_server(server_id):
-        await ctx.reply('Server stopped', ephemeral=True)
-    else:
-        await ctx.reply('failed to stop server', ephemeral=True)
-
-    data = get_json_response(API_ENDPOINT + str(server_id) + '/action/restart_server',
-                             'failed to restart server', method=HttpMethod.POST)
-    if not data:
-        await ctx.reply('failed to start server', ephemeral=True)
-        return
-
-    if data['status'] == "ok":
+    if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
+    else:
+        await ctx.reply('failed to restart server', ephemeral=True)
 
-# command not found
+
 @bot.event
 async def on_command_error(ctx, error):
     """
     Handle command errors
     """
+    # unwrap errors raised inside commands or by the slash command layer
+    while hasattr(error, 'original'):
+        error = error.original
+
     if isinstance(error, commands.CommandNotFound):
         await ctx.send('Command not found. Use `>help` to get a list of available commands.')
         print(error)
     elif isinstance(error, commands.MissingRequiredArgument):
         await ctx.send('Missing required argument. Use `>help` to get a list of available commands.')
         print(error)
+    elif isinstance(error, commands.NotOwner):
+        await ctx.reply('Only the bot owner can use this command', ephemeral=True)
+    elif isinstance(error, (commands.CheckFailure, app_commands.CheckFailure)):
+        await ctx.reply(str(error) or 'You are not allowed to use this command', ephemeral=True)
+    else:
+        traceback.print_exception(type(error), error, error.__traceback__)
+        await ctx.reply('Something went wrong', ephemeral=True)
 
 
 bot.run(os.environ['DISCORD_TOKEN'])
