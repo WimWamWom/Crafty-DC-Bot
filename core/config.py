@@ -277,14 +277,6 @@ def missing_required(values: dict) -> list[str]:
     return [field.label for name, field in FIELDS_BY_NAME.items() if field.required and not values[name]]
 
 
-def missing_toggled(values: dict) -> list[str]:
-    """
-    Return the labels of switched-on settings without a value.
-    """
-    return [FIELDS_BY_NAME[target].label for toggle, target in TOGGLES.items()
-            if values[toggle] and not values[target]]
-
-
 def enabled_value(name: str):
     """
     Get a setting that has an on/off switch, or 0 if it is switched off.
