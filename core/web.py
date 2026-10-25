@@ -142,6 +142,15 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
 .domain-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 560px) { .domain-row { grid-template-columns: 1fr; gap: 4px; } }
+/* MOTD toolbar above the messages */
+.motd-toolbar { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 6px 0 4px; }
+.mc-swatches { display: grid; grid-template-columns: repeat(8, 24px); gap: 4px; }
+.mc-swatch { width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; }
+.mc-swatch:hover, .mc-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mc-formats { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+.mc-format { min-width: 34px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 2px;
+             background: var(--plate); color: var(--text); font: 13px var(--mono); cursor: pointer; box-shadow: none; }
+.mc-format:hover, .mc-format:focus-visible { border-color: var(--accent); color: var(--accent); transform: none; }
 /* MOTD code legend: every color and format code shown in its own look */
 .mc-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
 .mc-code { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 2px;
@@ -243,6 +252,53 @@ function renderMotdLine(text, target) {
     target.appendChild(span);
   }
 }
+// MOTD toolbar: wraps the selected text in color or format codes, like a text editor
+var MC_FORMATS = 'klmnor';
+function activeCodes(prefix) {
+  var codes = [];
+  (prefix.match(/[&§][0-9a-fk-or]/gi) || []).forEach(function (match) {
+    var code = match.charAt(1).toLowerCase();
+    if (MC_COLORS[code]) codes = [code];
+    else if (code === 'r') codes = [];
+    else if (codes.indexOf(code) < 0) codes.push(code);
+  });
+  return codes.map(function (code) { return '&' + code; }).join('');
+}
+document.querySelectorAll('.motd-toolbar').forEach(function (toolbar) {
+  var input = document.getElementById(toolbar.dataset.for);
+  toolbar.addEventListener('mousedown', function (event) {
+    // keep the selection in the text field
+    if (event.target.closest('button')) event.preventDefault();
+  });
+  toolbar.addEventListener('click', function (event) {
+    var button = event.target.closest('button');
+    if (!button) return;
+    var code = button.dataset.code;
+    var start = input.selectionStart, end = input.selectionEnd, value = input.value;
+    var lineStart = value.lastIndexOf(String.fromCharCode(10), start - 1) + 1;
+    var before = activeCodes(value.slice(lineStart, start));
+    var selected = value.slice(start, end);
+    // nothing follows the selection on this line: no need to go back to the previous look
+    var atLineEnd = end === value.length || value.charAt(end) === String.fromCharCode(10);
+    var restore = atLineEnd ? '' : null;
+    var insert;
+    if (code === 'newline') {
+      insert = String.fromCharCode(92) + 'n' + selected;
+    } else if (!selected || code === 'r') {
+      insert = '&' + code + selected;
+    } else if (MC_COLORS[code]) {
+      // color only the selection, then go back to the previous look
+      insert = '&' + code + selected + (restore !== null ? restore : before || '&r');
+    } else {
+      insert = '&' + code + selected + (restore !== null ? restore : '&r' + before);
+    }
+    input.value = value.slice(0, start) + insert + value.slice(end);
+    var cursor = start + insert.length;
+    input.focus();
+    input.setSelectionRange(cursor, cursor);
+    input.dispatchEvent(new Event('input'));
+  });
+});
 document.querySelectorAll('[data-motd]').forEach(function (example) {
   example.dataset.motd.split('\\\\n').forEach(function (line, index) {
     if (index) example.appendChild(document.createElement('br'));
@@ -336,6 +392,24 @@ MC_FORMAT_CODES = [
     ('k', 'Verschlüsselt', ''), ('r', 'Zurücksetzen', ''),
 ]
 MOTD_EXAMPLE = '&6&lWimWamWom &7| &aHeute mit Creeper-Garantie\\n&eKomm vorbei!'
+
+
+def _motd_toolbar(name: str) -> str:
+    """
+    Buttons above the MOTD messages that color or format the selected text.
+    """
+    colors = ''.join(f'<button type="button" class="mc-swatch" data-code="{code}" title="&amp;{code} {color_name}" '
+                     f'aria-label="{color_name}" style="background:{color}"></button>'
+                     for code, color_name, color in MC_COLOR_CODES)
+    labels = {'l': '<b>F</b>', 'o': '<i>K</i>', 'n': '<u>U</u>', 'm': '<s>S</s>', 'k': '???', 'r': 'Reset'}
+    formats = ''.join(f'<button type="button" class="mc-format" data-code="{code}" title="&amp;{code} {format_name}" '
+                      f'aria-label="{format_name}">{labels[code]}</button>'
+                      for code, format_name, _ in MC_FORMAT_CODES)
+    newline = ('<button type="button" class="mc-format" data-code="newline" title="Zweite Zeile (\\n)">'
+               'Zeile 2</button>')
+    return (f'<div class="motd-toolbar" data-for="{name}"><div class="mc-swatches">{colors}</div>'
+            f'<div class="mc-formats">{formats}{newline}</div></div>'
+            f'<div class="help">Text markieren, dann Farbe oder Format klicken. Ohne Markierung gilt es ab dem Cursor</div>')
 
 
 def _motd_hints() -> str:
@@ -601,9 +675,11 @@ class WebInterface:
 
         if field.kind in ('list', 'lines', 'domains'):
             preview = ''
+            toolbar = ''
             if name in MOTD_PREVIEW:
                 preview = f'<div class="motd-preview" data-for="{name}"></div>'
-            return (f'{open_tag}{label}<textarea id="{name}" name="{name}">'
+                toolbar = _motd_toolbar(name)
+            return (f'{open_tag}{label}{toolbar}<textarea id="{name}" name="{name}">'
                     f'{escape(chr(10).join(value))}</textarea>{preview}{help_text}</div>')
 
         if field.kind == 'weekday':
