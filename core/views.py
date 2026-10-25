@@ -32,7 +32,7 @@ class ServerSelect(discord.ui.Select):
         stats = await get_server_stats(server_id)
         if stats is None:
             embed = new_embed(title=self.names[server_id], description='failed to get server stats',
-                                  color=discord.Color.light_grey())
+                              color=discord.Color.light_grey())
         else:
             embed = server_stats_embed(self.names[server_id], stats)
         await interaction.edit_original_response(embed=embed, view=self.view)

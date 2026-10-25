@@ -8,6 +8,8 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 - Server status as an embed with a dropdown for every server, including the names of online players
 - Start, stop and restart servers (stop and restart only when nobody is online)
 - Self-updating status board with all servers in one channel
+- One message per server start that shows the backup, the running server with players and the time until auto stop,
+  and why the server stopped (replaces the start/stop webhooks of Crafty)
 - Auto stop for empty servers
 - Automatic backups in Crafty (before start, daily, weekly), only when the server was played
 - Commands limited to one channel, server control limited to one role
@@ -95,6 +97,8 @@ If a required setting is missing, only the web interface starts.
 | `status.enabled` | `STATUS_ENABLED` | Switch: show the self-updating status board |
 | `status.channel_id` | `STATUS_CHANNEL_ID` | Channel for the status board |
 | `status.update_interval` | `STATUS_UPDATE_INTERVAL` | Status board update interval in seconds (default 60) |
+| `session.enabled` | `SESSION_ENABLED` | Post a message for every server start (default on) |
+| `session.channel_id` | `SESSION_CHANNEL_ID` | Channel for these messages, also for servers started outside the bot. Empty = channel of `/start`, other starts in the command channel |
 | `web.port` | `WEB_PORT` | Port of the web interface (default 4883) |
 | `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name) |
 

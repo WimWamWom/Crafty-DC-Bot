@@ -27,7 +27,7 @@ def new_embed(**kwargs) -> discord.Embed:
     return embed
 
 
-def _player_text(stats: dict) -> str:
+def player_text(stats: dict) -> str:
     """
     Format the online player count and names, e.g. "2/20: Steve, Alex".
     """
@@ -54,7 +54,7 @@ def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
     embed.add_field(name='World', value=stats.get('world_name') or '-')
     if running:
         embed.add_field(name='Version', value=stats.get('version') or '-')
-        embed.add_field(name='Players', value=_player_text(stats), inline=False)
+        embed.add_field(name='Players', value=player_text(stats), inline=False)
         embed.add_field(name='CPU', value=f"{stats.get('cpu', '?')}%")
         mem = stats.get('mem', '?')
         if isinstance(mem, (int, float)):
@@ -78,7 +78,7 @@ def status_embed(entries: list[tuple[dict, dict | None]]) -> discord.Embed:
             value = '⚪ Unknown'
         elif stats.get('running'):
             any_online = True
-            value = f"🟢 Online · {stats.get('version') or '-'}\nPlayers: {_player_text(stats)}"
+            value = f"🟢 Online · {stats.get('version') or '-'}\nPlayers: {player_text(stats)}"
         else:
             value = '🔴 Offline'
         embed.add_field(name=name, value=value[:MAX_FIELD_LENGTH], inline=False)

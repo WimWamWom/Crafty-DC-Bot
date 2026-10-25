@@ -41,6 +41,7 @@ SECTIONS = {
     'servers': 'Server',
     'auto_stop': 'Auto-Stop',
     'status': 'Status-Embed',
+    'session': 'Server-Embeds',
     'backup': 'Backups',
     'web': 'Webinterface',
 }
@@ -74,6 +75,13 @@ FIELDS = [
           'Kanal mit der Statusübersicht, die sich selbst aktualisiert'),
     Field('status', 'update_interval', 'int', 60, 'STATUS_UPDATE_INTERVAL', 'Aktualisierung (Sekunden)',
           'Wie oft die Statusübersicht aktualisiert wird'),
+    Field('session', 'enabled', 'bool', True, 'SESSION_ENABLED', 'Embed bei jedem Serverstart',
+          'Bei /start antwortet der Bot mit einem Embed, das „Backup wird erstellt“, dann den laufenden Server '
+          'mit Spielern und der Zeit bis zum Auto-Stop und am Ende Grund und Laufzeit des Stopps zeigt. '
+          'Es bleibt danach im Kanal stehen und ersetzt die Start/Stop-Webhooks von Crafty'),
+    Field('session', 'channel_id', 'channel', 0, 'SESSION_CHANNEL_ID', 'Kanal für Server-Embeds',
+          'Alle Embeds erscheinen hier, auch für Server, die außerhalb des Bots gestartet wurden (z. B. in Crafty). '
+          'Leer = im Kanal von /start, Starts außerhalb des Bots im Befehlskanal'),
     Field('backup', 'enabled', 'bool', False, None, 'Automatische Backups aktiv',
           'Der Bot legt bei jedem verfügbaren Server die Backup-Konfigurationen „Bot Start“, „Bot Täglich“ '
           'und „Bot Wöchentlich“ in Crafty an und hält sie aktuell. Backups werden nur erstellt, '

@@ -22,6 +22,10 @@ ALLOWED_SERVERS: list[str] = get('servers.allowed')
 STATUS_CHANNEL_ID: int = enabled_value('status.channel_id')
 STATUS_UPDATE_INTERVAL: int = max(get('status.update_interval'), 10)
 
+# Server start embeds. Without a channel they go to the channel of /start, other starts to the command channel
+SESSION_ENABLED: bool = get('session.enabled')
+SESSION_CHANNEL_ID: int = get('session.channel_id') or COMMAND_CHANNEL_ID
+
 # Bot logo (embed author icon, web interface favicon and header, Unraid template icon)
 LOGO_URL = 'https://wimwamwom.de/Bilder/mc-bot.png'
 

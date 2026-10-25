@@ -22,11 +22,13 @@ from core.helper import check_config, check_server_id, get_server_list, get_cach
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
 from core.embeds import new_embed, status_embed
 from core.status import StatusBoard
+from core.sessions import STARTING, SessionTracker
 from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
-from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, STATUS_CHANNEL_ID,
+from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
+                            SESSION_ENABLED, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
 
 SERVER_URL = get('crafty.url')
@@ -44,6 +46,10 @@ class CraftyBot(commands.Bot):
         if STATUS_CHANNEL_ID:
             print(f'status embed enabled in channel {STATUS_CHANNEL_ID}')
             update_status.start()
+
+        if sessions is not None:
+            print('server start embeds enabled')
+            update_sessions.start()
 
         if BACKUP_ENABLED:
             print('automatic backups enabled')
@@ -67,6 +73,21 @@ backup_scheduler = BackupScheduler()
 
 # track consecutive zero-player checks per server
 consecutive_zero = {}
+
+
+def auto_stop_eta(server_id: str) -> float | None:
+    """
+    Time (epoch seconds) when auto stop will stop the server if nobody joins, or None if auto stop is off.
+    """
+    next_check = auto_stop.next_iteration
+    if not AUTO_STOP_ENABLED or next_check is None:
+        return None
+    # the server is stopped on the second check in a row without players
+    remaining_checks = 1 if consecutive_zero.get(server_id, 0) >= 1 else 2
+    return next_check.timestamp() + (remaining_checks - 1) * AUTO_STOP_SLEEP_TIME
+
+
+sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta) if SESSION_ENABLED else None
 
 
 # stop servers after AUTO_STOP_SLEEP_TIME to 2x AUTO_STOP_SLEEP_TIME of inactivity (no players online)
@@ -97,8 +118,12 @@ async def auto_stop():
                 consecutive_zero[server_id] = consecutive_zero.get(server_id, 0) + 1
                 # require two consecutive checks with 0 players before stopping
                 if consecutive_zero[server_id] >= 2:
+                    if sessions is not None:
+                        sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
                     if await stop_server(server_id):
                         print(f'auto stop: stopped {server["server_name"]}')
+                    elif sessions is not None:
+                        sessions.set_stop_reason(server_id, None)
                     consecutive_zero.pop(server_id, None)
             else:
                 # players online -> reset counter
@@ -120,6 +145,18 @@ async def update_status():
         traceback.print_exc()
 
 
+@tasks.loop(seconds=30)
+async def update_sessions():
+    """
+    Update the server start embeds.
+    """
+    try:
+        await sessions.tick()
+    except Exception:
+        # keep the loop alive on unexpected errors (e.g. missing permissions)
+        traceback.print_exc()
+
+
 @tasks.loop(seconds=60)
 async def backup_loop():
     """
@@ -130,6 +167,7 @@ async def backup_loop():
 
 @auto_stop.before_loop
 @update_status.before_loop
+@update_sessions.before_loop
 @backup_loop.before_loop
 async def wait_until_ready():
     await bot.wait_until_ready()
@@ -197,15 +235,35 @@ async def start(ctx, server_id):
         await ctx.reply('Server already running', ephemeral=True)
         return
 
-    if needs_start_backup(server_id):
-        await ctx.reply('Creating a backup before starting, this can take a moment...', ephemeral=True)
-        if not await backup_before_start(server_id):
+    backup = needs_start_backup(server_id)
+    session = None
+    if sessions is not None:
+        server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),
+                      {'server_id': server_id, 'server_name': server_id})
+        # the embed is the public answer, as a reply to the message for > commands
+        session = await sessions.begin(server, ctx.author.mention, ctx.channel, backup,
+                                       reference=ctx.message if ctx.interaction is None else None)
+        if ctx.interaction is not None:
+            link = f': {session.message.jump_url}' if session.message else ''
+            await ctx.reply(f'Starting {server["server_name"]}{link}', ephemeral=True)
+
+    if backup:
+        if session is None:
+            await ctx.reply('Creating a backup before starting, this can take a moment...', ephemeral=True)
+        backup_ok = await backup_before_start(server_id)
+        if session is not None:
+            await sessions.update(session, phase=STARTING,
+                                  note=None if backup_ok else 'Backup failed, check the backups in Crafty')
+        elif not backup_ok:
             await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
 
     if await server_action(server_id, 'start_server'):
         mark_started(server_id)
-        await ctx.reply('Server started', ephemeral=True)
+        if session is None:
+            await ctx.reply('Server started', ephemeral=True)
     else:
+        if session is not None:
+            await sessions.fail(session, 'failed to start')
         await ctx.reply('failed to start server', ephemeral=True)
 
 
@@ -246,9 +304,13 @@ async def stop(ctx, server_id):
     if not await check_can_stop(ctx, server_id, 'stop'):
         return
 
+    if sessions is not None:
+        sessions.set_stop_reason(server_id, f'/stop by {ctx.author.mention}')
     if await stop_server(server_id):
         await ctx.reply('Server stopped', ephemeral=True)
     else:
+        if sessions is not None:
+            sessions.set_stop_reason(server_id, None)
         await ctx.reply('failed to stop server', ephemeral=True)
 
 
@@ -267,6 +329,8 @@ async def restart(ctx, server_id):
     if not await check_can_stop(ctx, server_id, 'restart'):
         return
 
+    if sessions is not None:
+        sessions.mark_restart(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
     else:
