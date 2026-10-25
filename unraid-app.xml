@@ -55,8 +55,8 @@
     </Port>
 
     <Volume>
-      <HostDir>/mnt/user/appdata/crafty-discord-bot</HostDir>
-      <ContainerDir>/usr/src/app/config</ContainerDir>
+      <HostDir>/mnt/user/appdata/crafty-discord-bot/data</HostDir>
+      <ContainerDir>/usr/src/app/data</ContainerDir>
       <Description>Config (config.yaml)</Description>
       <Mode>rw</Mode>
     </Volume>

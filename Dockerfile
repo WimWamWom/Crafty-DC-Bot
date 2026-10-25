@@ -9,10 +9,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 ENV PYTHONWARNINGS="ignore:Unverified HTTPS request"
-ENV CONFIG_PATH=/usr/src/app/config/config.yaml
+ENV CONFIG_PATH=/usr/src/app/data/config.yaml
 
 # Config file (config.yaml) is stored here
-VOLUME /usr/src/app/config
+VOLUME /usr/src/app/data
 # Web interface
 EXPOSE 4883
 

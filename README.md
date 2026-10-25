@@ -117,7 +117,7 @@ Congratulations! Your bot has been invited to your server
 
 ### Configuration
 
-All settings are stored in `config/config.yaml`. The file is created on the first start and can be edited
+All settings are stored in `data/config.yaml`. The file is created on the first start and can be edited
 by hand or in the **web interface** on port `4883` (`http://<host>:4883`). Saving in the web interface
 restarts the bot so the changes take effect.
 
@@ -150,7 +150,7 @@ A ready-made image is built automatically on every push to `main` and published 
 as `ghcr.io/wimwamwom/crafty-dc-bot:latest`. Run it with a volume for the config and the web interface port:
 
 ```bash
-docker run -d --name crafty-bot -p 4883:4883 -v /path/to/config:/usr/src/app/config ghcr.io/wimwamwom/crafty-dc-bot:latest
+docker run -d --name crafty-bot -p 4883:4883 -v /path/to/data:/usr/src/app/data ghcr.io/wimwamwom/crafty-dc-bot:latest
 ```
 
 To build it yourself instead, run `docker build -t crafty-discord-bot .` and use `crafty-discord-bot` as the image.
@@ -168,7 +168,7 @@ services:
     ports:
       - "4883:4883"
     volumes:
-      - ./config:/usr/src/app/config
+      - ./data:/usr/src/app/data
     restart: unless-stopped
 ```
 
