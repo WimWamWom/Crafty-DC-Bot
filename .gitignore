@@ -9,3 +9,6 @@ __pycache__/
 .coverage
 
 coverage.xml
+
+# Bot config (created on first start, contains tokens)
+config/

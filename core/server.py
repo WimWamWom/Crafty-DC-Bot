@@ -2,18 +2,20 @@
 
 import ast
 
-from core.constants import API_ENDPOINT
+from core.constants import ALLOWED_SERVERS, API_ENDPOINT
 from core.network import get_json_response, HttpMethod
 
 
-async def get_servers() -> list[dict] | None:
+async def get_servers(include_all: bool = False) -> list[dict] | None:
     """
-    Get the list of all servers. Returns None on error.
+    Get the list of servers available in the bot (all servers if include_all is set). Returns None on error.
     """
     data = await get_json_response(API_ENDPOINT, 'failed to get server list')
     if not data or 'data' not in data:
         return None
-    return data['data']
+    if include_all or not ALLOWED_SERVERS:
+        return data['data']
+    return [server for server in data['data'] if server['server_id'] in ALLOWED_SERVERS]
 
 
 async def get_server_stats(server_id) -> dict | None:

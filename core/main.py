@@ -3,6 +3,7 @@ This is the main file of the bot. It contains the
 main loop and the event handlers.
 """
 
+import asyncio
 import os
 import sys
 import traceback
@@ -15,27 +16,26 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Load environment variables from .env file
+# Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
-from core.helper import check_env_vars, check_server_id, get_server_list, get_cached_servers, get_server_name
-
-check_env_vars()
-
+from core.config import get
+from core.helper import check_config, check_server_id, get_server_list, get_cached_servers, get_server_name
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
 from core.embeds import server_list_embed, server_stats_embed
 from core.status import StatusBoard
 from core.checks import command_channel_check, control_role
 from core.custom_help_command import CustomHelpCommand
-from core.constants import AUTO_STOP_SLEEP_TIME, GUILD_ID, STATUS_CHANNEL_ID, STATUS_UPDATE_INTERVAL
+from core.web import WebInterface
+from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, GUILD_ID, STATUS_CHANNEL_ID,
+                            STATUS_UPDATE_INTERVAL, WEB_PORT)
 
-SERVER_URL = os.environ['SERVER_URL']
-ENABLE_AUTO_STOP = os.environ.get('ENABLE_AUTO_STOP_SERVER', '').lower() in ('1', 'true', 'yes', 'on')
+SERVER_URL = get('crafty.url')
 
 
 class CraftyBot(commands.Bot):
     async def setup_hook(self) -> None:
         # setup_hook runs once per process, unlike on_ready which fires again after every reconnect
-        if ENABLE_AUTO_STOP:
+        if AUTO_STOP_ENABLED:
             print('auto stop enabled')
             auto_stop.start()
         else:
@@ -285,4 +285,36 @@ async def on_command_error(ctx, error):
         await ctx.reply('Something went wrong', ephemeral=True)
 
 
-bot.run(os.environ['DISCORD_TOKEN'])
+def restart_process():
+    """
+    Restart the bot process so a changed config takes effect.
+    """
+    sys.stdout.flush()
+    os.execv(sys.executable, [sys.executable, '-u', os.path.abspath(__file__)])
+
+
+async def main():
+    await WebInterface(bot, on_saved=restart_process).start(WEB_PORT)
+
+    if not check_config():
+        print(f'Open the web interface on port {WEB_PORT} to finish the setup')
+        await asyncio.Event().wait()
+
+    try:
+        async with bot:
+            await bot.start(get('discord.token'))
+    except discord.LoginFailure:
+        print(f'Invalid Discord token. Fix it in the web interface on port {WEB_PORT}')
+        await asyncio.Event().wait()
+    except discord.PrivilegedIntentsRequired:
+        print('Enable the "Message Content Intent" for the bot in the Discord Developer Portal')
+        await asyncio.Event().wait()
+    except Exception:
+        # e.g. Discord not reachable: keep the web interface up and try again later
+        traceback.print_exc()
+        print('Bot stopped, restarting in 60 seconds')
+        await asyncio.sleep(60)
+        restart_process()
+
+
+asyncio.run(main())

@@ -7,11 +7,13 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/Two-Play/Crafty-Discord-bot</Support>
   <Overview>Crafty Discord Bot Controller für Unraid</Overview>
-  <WebUI>https://crafty.wimwamwom.de</WebUI>
+  <WebUI>http://[IP]:[PORT:4883]/</WebUI>
   <Category>Utilities</Category>
   <Project>Crafty Discord Bot</Project>
   <Icon>https://wimwamwom.de/Bilder/mc-bot.png</Icon>
 
+  <!-- Environment variables are only used to create config.yaml on the first start.
+       Afterwards change the settings in the web interface (port 4883). -->
   <Config>
     <Environment>
       <Variable>
@@ -46,10 +48,16 @@
       </Variable>
     </Environment>
 
+    <Port>
+      <HostPort>4883</HostPort>
+      <ContainerPort>4883</ContainerPort>
+      <Protocol>tcp</Protocol>
+    </Port>
+
     <Volume>
       <HostDir>/mnt/user/appdata/crafty-discord-bot</HostDir>
-      <ContainerDir>/app</ContainerDir>
-      <Description>Bot Files</Description>
+      <ContainerDir>/usr/src/app/config</ContainerDir>
+      <Description>Config (config.yaml)</Description>
       <Mode>rw</Mode>
     </Volume>
   </Config>

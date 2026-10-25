@@ -2,40 +2,40 @@
 This module contains helper different functions.
 """
 
-import os
-import sys
 import time
 import uuid
 
 import discord
 from discord import app_commands
 
+from core.config import config, missing_required
+from core.constants import ALLOWED_SERVERS
 from core.server import get_servers
 
 
-def check_env_vars():
+def check_config() -> bool:
     """
-    Check if all required environment variables are set and exit if any are missing.
+    Check if all required settings are set.
 
-    The required environment variables are:
-    - SERVER_URL
-    - DISCORD_TOKEN
-    - CRAFTY_TOKEN
+    The required settings are the Crafty URL, the Crafty API token and the Discord bot token.
+    They can be set in the config file, the web interface or the environment variables
+    SERVER_URL, CRAFTY_TOKEN and DISCORD_TOKEN.
 
-    If any required environment variable is missing or empty, the function will
-    print an error message and exit the program.
+    Returns:
+        bool: True if the bot can start, False otherwise.
     """
-    missing = [var for var in ['SERVER_URL', 'DISCORD_TOKEN', 'CRAFTY_TOKEN'] if not os.environ.get(var)]
+    missing = missing_required(config)
     if missing:
-        print('Not all environment variables set')
-        for env_var in missing:
-            print(f'{env_var} not set')
-        sys.exit(1)
+        print('Not all required settings set')
+        for label in missing:
+            print(f'{label} not set')
+        return False
 
-    if not os.environ.get('GUILD_ID'):
-        print('GUILD_ID not set: slash commands will not be available')
+    if not config['discord.guild_id']:
+        print('Discord server ID (GUILD_ID) not set: slash commands will not be available')
 
-    print('All environment variables set')
+    print('All required settings set')
+    return True
 
 
 async def check_server_id(server_id: str, ctx=None) -> bool:
@@ -57,6 +57,11 @@ async def check_server_id(server_id: str, ctx=None) -> bool:
         print('Invalid server ID')
         if ctx:
             await ctx.reply('Invalid server ID', ephemeral=True)
+        return False
+    if ALLOWED_SERVERS and server_id not in ALLOWED_SERVERS:
+        print('Server not available')
+        if ctx:
+            await ctx.reply('Server not available', ephemeral=True)
         return False
     print('Valid server ID')
     return True

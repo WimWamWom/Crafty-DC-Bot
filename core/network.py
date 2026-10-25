@@ -1,9 +1,9 @@
 import asyncio
-import os
 import requests
 from requests import Response
 from enum import Enum
 
+from core.config import get
 from core.constants import STATUS_SUCCESS
 
 class HttpMethod(Enum):
@@ -39,8 +39,8 @@ def send_request(path: str, verify: bool = False, timeout: int = 6, data: dict =
     Returns:
         requests.Response: The HTTP response object.
     """
-    url = os.environ['SERVER_URL'].rstrip('/') + path
-    headers = {'Authorization': 'Bearer ' + os.environ['CRAFTY_TOKEN']}
+    url = get('crafty.url').rstrip('/') + path
+    headers = {'Authorization': 'Bearer ' + get('crafty.token')}
     try:
         response = requests.request(method.value, url, headers=headers, verify=verify, timeout=timeout, json=data)
         return response

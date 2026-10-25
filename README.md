@@ -14,6 +14,7 @@
 3. [Roadmap](#roadmap)
 4. [Installation](#installation)
     - [Requirements](#requirements)
+    - [Configuration](#configuration)
     - [Docker](#docker)
     - [Python](#python)
 5. [Usage](#usage)
@@ -35,17 +36,18 @@ Discord API.
 
 ### Features
 
-- **Server Status**: Get the status of the server
-- **Server Start**: Start the server
-- **Server Stop**: Stop the server
-- **Server Restart**: Restart the server
+- **Server Status**: Get the status of a server as an embed, including the names of the online players
+- **Status board**: A self-updating status message with all servers in a channel
+- **Server Start / Stop / Restart**: Stop and restart only work when no players are online
 - **Server List**: Get a list of all servers
+- **Auto Stop**: Stop servers automatically when nobody is online
+- **Permissions**: Restrict commands to one channel and server control to one role
+- **Server selection**: Choose which Crafty servers are available in the bot
+- **Web interface**: Change all settings in the browser (port 4883)
 
 ## Roadmap
 
 - **Server Backup**: Create a backup of the server
-- **Auto complete (slash commands)**: Auto complete the server ID
-- **Web UI**: Create a web interface for the bot
 
 ## Installation
 
@@ -113,155 +115,104 @@ You will need to create a new Discord bot and obtain a bot token. You can do thi
 
 Congratulations! Your bot has been invited to your server
 
+### Configuration
+
+All settings are stored in `config/config.yaml`. The file is created on the first start and can be edited
+by hand or in the **web interface** on port `4883` (`http://<host>:4883`). Saving in the web interface
+restarts the bot so the changes take effect.
+
+| Setting | Environment variable | Description |
+|---|---|---|
+| `crafty.url` | `SERVER_URL` | URL of your Crafty Controller, e.g. `https://your-crafty-server-IP:PORT` (required) |
+| `crafty.token` | `CRAFTY_TOKEN` | Crafty API token (required) |
+| `discord.token` | `DISCORD_TOKEN` | Discord bot token (required) |
+| `discord.guild_id` | `GUILD_ID` | ID of your Discord server, needed for slash commands |
+| `discord.command_channel_id` | `COMMAND_CHANNEL_ID` | Only accept commands in this channel (0 = all) |
+| `discord.control_role_id` | `CONTROL_ROLE_ID` | Only this role may start, stop and restart servers (0 = everyone) |
+| `servers.allowed` | `ALLOWED_SERVERS` | Server IDs available in the bot, comma-separated in the env variable (empty = all) |
+| `auto_stop.enabled` | `ENABLE_AUTO_STOP_SERVER` | Stop empty servers automatically |
+| `auto_stop.interval` | `AUTO_STOP_SLEEP_TIME` | Check interval in seconds (default 1800). A server is stopped after two checks in a row without players |
+| `status.channel_id` | `STATUS_CHANNEL_ID` | Channel for the self-updating status message (0 = off) |
+| `status.update_interval` | `STATUS_UPDATE_INTERVAL` | Status update interval in seconds (default 60) |
+| `web.port` | `WEB_PORT` | Port of the web interface (default 4883) |
+| `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name). Set one if the port is reachable from outside |
+
+Environment variables (or a `.env` file) are only used for settings that are missing in `config.yaml`,
+e.g. to fill it on the first start. Once the file exists, it wins. If a required setting is missing, only the
+web interface starts so you can finish the setup there.
+
+If you use the status board, the bot needs the "Read Message History" permission in that channel so it can find
+its status message again after a restart.
+
 ### Docker
 
-Installing the bot using Docker is the easiest way to get started. To do this, you will need to have Docker installed on
-your system. If you do not have Docker installed, you can download it from
-the [official Docker website](https://www.docker.com/get-started).
-
-
-> [!IMPORTANT]
-> Replace `YOUR_DISCORD_TOKEN` with your Discord bot token, `YOUR_CRAFTY_TOKEN` with your Crafty Controller API token
-> and `YOUR_CRAFTY_SERVER_URL` with the URL of your Crafty Controller server in
-> the following format: `https://your-crafty-server-IP:PORT`.
-
-To install the bot using Docker, you will need to run the following command in your terminal:
+Build the image and run it with a volume for the config and the web interface port:
 
 ```bash
-docker run -d --name crafty-bot -e DISCORD_TOKEN=YOUR_DISCORD_TOKEN -e CRAFTY_TOKEN=YOUR_CRAFTY_TOKEN -e SERVER_URL=YOUR_CRAFTY_SERVER_URL twoplay/craftybot:latest
+docker build -t crafty-discord-bot .
+docker run -d --name crafty-bot -p 4883:4883 -v /path/to/config:/usr/src/app/config crafty-discord-bot
 ```
 
-Or you can use the following `docker-compose.yml` file:
+Then open `http://<host>:4883` and enter your tokens. You can also pass the settings as environment variables
+(`-e DISCORD_TOKEN=... -e CRAFTY_TOKEN=... -e SERVER_URL=...`) for the first start.
+
+Or with `docker-compose.yml`:
 
 ```yaml
 services:
   crafty-bot:
-    image: twoplay/craftybot:latest
+    build: .
     container_name: crafty-bot
-    environment:
-      - DISCORD_TOKEN=YOUR_DISCORD_TOKEN
-      - CRAFTY_TOKEN=YOUR_CRAFT
-      - SERVER_URL=YOUR_CRAFTY_SERVER_URL
+    ports:
+      - "4883:4883"
+    volumes:
+      - ./config:/usr/src/app/config
     restart: unless-stopped
 ```
 
+For Unraid there is a template in `unraid-app.xml`.
+
 ### Python
 
-If you would like to install the bot using Python, you will need to have Python 3.8 or higher installed on your system.
-
-Clone the repository
+You need Python 3.10 or higher.
 
 ```bash
-git clone https://github.com/Two-Play/Crafty-Discord-bot.git
-```
-
-Change into the project directory
-
-```bash
-cd Crafty-Discord-bot
-```
-
-Create a virtual environment
-
-```bash
+git clone https://github.com/WimWamWom/Crafty-DC-Bot.git
+cd Crafty-DC-Bot
 python -m venv venv
-```
-
-Activate the virtual environment
-On Linux and macOS:
-
-```bash
-source venv/bin/activate
-```
-
-On Windows:
-
-```bash
-venv\Scripts\activate
-```
-
-Download the required dependencies
-
-```bash
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+python core/main.py
 ```
 
-To run the bot, you will need to copy the `.env.example` file to a new file called `.env` and fill in the required
-fields.
-Only the `DISCORD_TOKEN` and `CRAFTY_TOKEN` fields are required to run the bot. If you want to use slash commands, you
-will need to fill in the `GUILD_ID` field as well.
-
-```bash
-
-Start the bot
-```bash
-cd core
-python main.py
-```
-
-Replace `YOUR_DISCORD_TOKEN` with your Discord bot token and `CRAFTY_TOKEN` with your Crafty Controller API token.
+Then open `http://localhost:4883` to configure the bot, or copy `.env.example` to `.env` and fill in the values
+before the first start.
 
 #### Update
 
-For updating the bot, you can use the following command:
-
 ```bash
-# Change into the project directory and pull the latest changes
-cd Crafty-Discord-bot
+cd Crafty-DC-Bot
 git pull
+pip install -r requirements.txt
 ```
 
 ## Usage
 
-### Slash Commands (Beta)
+All commands work as slash commands (`/stats`) and with the `>` prefix (`>stats <server_id>`).
+Slash commands need `discord.guild_id` and are synced automatically when the bot starts.
+With slash commands, the server name can be picked from a list.
 
-To use slash commands, you will need to set the `GUILD_ID` in the `.env` file. You can get the `GUILD_ID` by enabling
-the `Developer Mode` in Discord and right-clicking on the server name.
+| Command | Description |
+|---|---|
+| `/list` | List all servers with ID, IP and port |
+| `/stats <server>` | Status, players, version, CPU and RAM of a server |
+| `/start <server>` | Start a server (control role) |
+| `/stop <server>` | Stop a server if no players are online (control role) |
+| `/restart <server>` | Restart a server if no players are online (control role) |
+| `/sync` | Sync slash commands again (bot owner only) |
+| `>help` | List all commands |
 
-To get the slash commands, enter the following command:
-
-```bash
-  >clear
-  >commands
-  >sync
-```
-
-Hopefully, the bot will know the commands. It is still in beta, so it may not work as expected.
-
-The bot supports slash commands. To use the slash commands, you will need to have the `Use slash commands` permission
-enabled for the bot.
-
-```bash
-  /help
-```
-
-### Command (>)
-
-Enter the following command to get a list of available commands:
-
-```bash
-  >help
-```
-
-To get the status of the server, enter the following command:
-
-```bash
-  >status
-```
-
-To start the server, enter the following command:
-
-```bash
-  >start [server_id]
-```
-
-replace `[server_id]` with the ID of the server you want to start. You can get the server ID by entering the `>list`
-command.
-For example:
-
-```bash
-  >start da459ce3-6964-46b8-bb21-1c3e753b6ba9
-```
+The bot owner can use all commands in every channel, regardless of the channel and role settings.
 
 ## Issues
 
