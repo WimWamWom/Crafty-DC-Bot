@@ -1,5 +1,5 @@
 """
-This module loads and saves the bot configuration (config/config.yaml).
+This module loads and saves the bot configuration (data/config.yaml).
 
 Values from the config file take precedence. Environment variables are only used
 for keys that are missing in the file, so existing Docker/Unraid setups keep working.
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import yaml
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-CONFIG_PATH = os.environ.get('CONFIG_PATH', os.path.join(ROOT_DIR, 'config', 'config.yaml'))
+CONFIG_PATH = os.environ.get('CONFIG_PATH', os.path.join(ROOT_DIR, 'data', 'config.yaml'))
 
 TRUE_VALUES = ('1', 'true', 'yes', 'on')
 
