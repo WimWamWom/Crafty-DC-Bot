@@ -167,7 +167,7 @@ FIELDS = [
           'Jede Zeile zeigt eine Nachricht so, wie sie in der Serverliste aussieht. Mit Bearbeiten '
           'änderst du sie samt Farben, Speichern übernimmt alle Änderungen'),
     Field('motd', 'servers', 'server_motds', {}, None, 'MOTD pro Server',
-          'Zufällig = eine Nachricht aus „Zufällige Nachrichten“. Fest = dieser Server zeigt immer denselben Text. '
+          'Zufällig = eine Nachricht aus „Zufällige MOTD“. Fest = dieser Server zeigt immer denselben Text. '
           '„Nicht ändern“ = der Bot lässt die MOTD des Servers, wie sie ist. Ein neues Icon wird quadratisch '
           'zugeschnitten, als PNG mit 64x64 Pixeln gespeichert und gilt ab dem nächsten Start'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
