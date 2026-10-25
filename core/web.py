@@ -125,17 +125,28 @@ details summary:hover { color: var(--accent); }
 details ul { margin-top: 8px; padding-left: 18px; }
 details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; color: var(--text); }
 
-/* MOTD preview: one entry per message, roughly like the Minecraft server list */
-.motd-preview { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
-.motd-preview:empty { display: none; }
-.motd-entry { display: flex; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 2px;
-              background: #0c0c0c; border: 1px solid var(--line); }
-.motd-entry .icon { flex: none; width: 40px; height: 40px; border-radius: 2px; background: var(--plate);
-                    border: 1px solid var(--line-strong); }
-.motd-entry .lines { min-width: 0; font: 14px/1.35 var(--mono); }
-.motd-entry .title { color: #fff; }
-.motd-entry .line { color: #aaa; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.35em; }
-.motd-entry .k { filter: blur(3px); }
+/* MOTD messages: one compact row per message with its preview, edited one at a time */
+.motd-source.js { display: none; }
+.motd-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.motd-list:empty { display: none; }
+.motd-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+            padding: 6px 8px; border-radius: 2px; background: #0c0c0c; border: 1px solid var(--line); }
+.motd-row.editing { border-color: var(--accent); }
+.motd-row .num { color: var(--muted); font: 12px var(--mono); text-align: right; }
+.motd-row .lines { min-width: 0; font: 14px/1.35 var(--mono); }
+.motd-row .line { color: #aaa; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.35em; }
+.motd-row .empty { color: var(--muted); font-style: italic; }
+.motd-row .k { filter: blur(3px); }
+.motd-row .actions { display: flex; gap: 4px; }
+.motd-editor { margin: 2px 0 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 2px;
+               background: var(--plate); }
+.motd-editor[hidden] { display: none; }
+.motd-editor .motd-toolbar { margin-top: 0; }
+.motd-editor-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.motd-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.motd-count { color: var(--muted); font-size: 13px; }
+@media (max-width: 560px) { .motd-row { grid-template-columns: minmax(0, 1fr); }
+                            .motd-row .num { display: none; } }
 /* Domain per server: one row per server with a dropdown */
 .domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
@@ -304,27 +315,100 @@ document.querySelectorAll('[data-motd]').forEach(function (example) {
     renderMotdLine(line, example);
   });
 });
-document.querySelectorAll('.motd-preview').forEach(function (preview) {
-  var input = document.getElementById(preview.dataset.for);
-  var update = function () {
-    preview.textContent = '';
-    input.value.split('\\n').forEach(function (message) {
-      if (!message.trim()) return;
-      var entry = document.createElement('div');
-      entry.className = 'motd-entry';
-      entry.innerHTML = '<div class="icon"></div><div class="lines"><div class="title">' +
-                        'Minecraft Server</div><div class="line"></div><div class="line"></div></div>';
-      var lines = entry.querySelectorAll('.line');
-      // the second line keeps the formatting of the first, so render both into one flow
-      var halves = message.trim().split('\\\\n');
-      var carry = halves[0].match(/[&\u00a7][0-9a-fk-or]/gi) || [];
-      renderMotdLine(halves[0], lines[0]);
-      if (halves.length > 1) renderMotdLine(carry.join('') + halves.slice(1).join(' '), lines[1]);
-      preview.appendChild(entry);
-    });
+document.querySelectorAll('.motd-list').forEach(function (list) {
+  var source = document.getElementById(list.dataset.for);
+  var editor = document.querySelector('.motd-editor[data-for="' + list.dataset.for + '"]');
+  var input = editor.querySelector('.motd-input');
+  var count = document.querySelector('.motd-count[data-for="' + list.dataset.for + '"]');
+  var messages = source.value.split(String.fromCharCode(10)).filter(function (m) { return m.trim(); });
+  var editing = -1;
+  source.classList.add('js');
+  var sync = function () {
+    source.value = messages.filter(function (m) { return m.trim(); }).join(String.fromCharCode(10));
+    var total = messages.filter(function (m) { return m.trim(); }).length;
+    count.textContent = total === 1 ? '1 Nachricht' : total + ' Nachrichten';
   };
-  input.addEventListener('input', update);
-  update();
+  var preview = function (message, target) {
+    target.textContent = '';
+    if (!message.trim()) {
+      target.innerHTML = '<div class="line empty">leer</div>';
+      return;
+    }
+    target.innerHTML = '<div class="line"></div><div class="line"></div>';
+    var lines = target.querySelectorAll('.line');
+    // the second line keeps the formatting of the first, so render both into one flow
+    var halves = message.trim().split('\\\\n');
+    var carry = halves[0].match(/[&§][0-9a-fk-or]/gi) || [];
+    renderMotdLine(halves[0], lines[0]);
+    if (halves.length > 1) renderMotdLine(carry.join('') + halves.slice(1).join(' '), lines[1]);
+  };
+  var render = function () {
+    list.textContent = '';
+    messages.forEach(function (message, index) {
+      var row = document.createElement('div');
+      row.className = 'motd-row' + (index === editing ? ' editing' : '');
+      row.innerHTML = '<span class="num">' + (index + 1) + '</span><div class="lines"></div><div class="actions">' +
+                      '<button type="button" class="mc-format" data-act="edit">' +
+                      (index === editing ? 'Schließen' : 'Bearbeiten') + '</button>' +
+                      '<button type="button" class="mc-format" data-act="delete">Löschen</button></div>';
+      row.dataset.index = index;
+      preview(message, row.querySelector('.lines'));
+      list.appendChild(row);
+      if (index === editing) list.appendChild(editor);
+    });
+    editor.hidden = editing < 0;
+    if (editing < 0) list.after(editor);
+  };
+  var open = function (index) {
+    editing = index;
+    render();
+    input.value = messages[index];
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
+  var close = function () {
+    editing = -1;
+    messages = messages.filter(function (m) { return m.trim(); });
+    sync();
+    render();
+  };
+  list.addEventListener('click', function (event) {
+    // the editor sits inside the list: its buttons are handled by the toolbar
+    var row = event.target.closest('.motd-row');
+    var button = event.target.closest('button');
+    if (!button || !row) return;
+    var index = Number(row.dataset.index);
+    if (button.dataset.act === 'delete') {
+      messages.splice(index, 1);
+      if (editing === index) editing = -1;
+      else if (editing > index) editing--;
+      sync();
+      render();
+    } else if (editing === index) {
+      close();
+    } else {
+      open(index);
+    }
+  });
+  input.addEventListener('input', function () {
+    if (editing < 0) return;
+    messages[editing] = input.value;
+    preview(input.value, list.querySelector('.motd-row[data-index="' + editing + '"] .lines'));
+    sync();
+  });
+  input.addEventListener('keydown', function (event) {
+    // Enter would send the form: close the editor instead
+    if (event.key === 'Enter') { event.preventDefault(); close(); }
+    if (event.key === 'Escape') close();
+  });
+  editor.querySelector('.motd-done').addEventListener('click', close);
+  document.querySelector('.motd-add[data-for="' + list.dataset.for + '"]').addEventListener('click', function () {
+    messages = messages.filter(function (m) { return m.trim(); });
+    messages.push('');
+    open(messages.length - 1);
+  });
+  sync();
+  render();
 });
 </script>"""
 
@@ -680,13 +764,19 @@ class WebInterface:
                     f'{"".join(html_options)}</select>{help_text}</div>')
 
         if field.kind in ('list', 'lines', 'domains'):
-            preview = ''
-            toolbar = ''
+            textarea = (f'<textarea id="{name}" name="{name}"{" class=motd-source" if name in MOTD_PREVIEW else ""}>'
+                        f'{escape(chr(10).join(value))}</textarea>')
             if name in MOTD_PREVIEW:
-                preview = f'<div class="motd-preview" data-for="{name}"></div>'
-                toolbar = _motd_toolbar(name)
-            return (f'{open_tag}{label}{toolbar}<textarea id="{name}" name="{name}">'
-                    f'{escape(chr(10).join(value))}</textarea>{preview}{help_text}</div>')
+                # the textarea stays the form field, the page hides it and shows the list instead
+                editor = (f'<div class="motd-editor" data-for="{name}" hidden>{_motd_toolbar(name + ".edit")}'
+                          f'<input type="text" id="{name}.edit" class="motd-input" autocomplete="off" '
+                          f'aria-label="Nachricht bearbeiten"><div class="motd-editor-actions">'
+                          f'<button type="button" class="mc-format motd-done">Fertig</button></div></div>')
+                bar = (f'<div class="motd-bar"><button type="button" class="mc-format motd-add" data-for="{name}">'
+                       f'+ Nachricht hinzufügen</button><span class="motd-count" data-for="{name}"></span></div>')
+                return (f'{open_tag}{label}{textarea}<div class="motd-list" data-for="{name}"></div>{editor}'
+                        f'{bar}{help_text}</div>')
+            return f'{open_tag}{label}{textarea}{help_text}</div>'
 
         if field.kind == 'weekday':
             options = ''.join(f'<option value="{day}"{" selected" if day == value else ""}>{day_name}</option>'
