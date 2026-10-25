@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 import discord
 
-from core.embeds import COLOR_OFFLINE, COLOR_ONLINE, MAX_FIELD_LENGTH, new_embed, player_text
+from core.embeds import COLOR_OFFLINE, COLOR_ONLINE, MAX_FIELD_LENGTH, add_usage_fields, new_embed, player_text
 from core.server import get_server_stats, get_servers
 
 # Footer text used to find session messages again after a restart, followed by the server ID
@@ -100,6 +100,7 @@ class SessionTracker:
         if session.phase == RUNNING:
             embed.add_field(name='Version', value=stats.get('version') or '-')
             embed.add_field(name='Players', value=player_text(stats)[:MAX_FIELD_LENGTH], inline=False)
+            add_usage_fields(embed, stats)
             embed.add_field(name='Online since', value=f'<t:{int(session.started_at)}:R>')
             eta = self.auto_stop_eta(session.server_id)
             if eta is not None:
