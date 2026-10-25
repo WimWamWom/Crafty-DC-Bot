@@ -146,12 +146,14 @@ its status message again after a restart.
 
 ### Docker
 
-Build the image and run it with a volume for the config and the web interface port:
+A ready-made image is built automatically on every push to `main` and published to the GitHub Container Registry
+as `ghcr.io/wimwamwom/crafty-dc-bot:latest`. Run it with a volume for the config and the web interface port:
 
 ```bash
-docker build -t crafty-discord-bot .
-docker run -d --name crafty-bot -p 4883:4883 -v /path/to/config:/usr/src/app/config crafty-discord-bot
+docker run -d --name crafty-bot -p 4883:4883 -v /path/to/config:/usr/src/app/config ghcr.io/wimwamwom/crafty-dc-bot:latest
 ```
+
+To build it yourself instead, run `docker build -t crafty-discord-bot .` and use `crafty-discord-bot` as the image.
 
 Then open `http://<host>:4883` and enter your tokens. You can also pass the settings as environment variables
 (`-e DISCORD_TOKEN=... -e CRAFTY_TOKEN=... -e SERVER_URL=...`) for the first start.
@@ -161,7 +163,7 @@ Or with `docker-compose.yml`:
 ```yaml
 services:
   crafty-bot:
-    build: .
+    image: ghcr.io/wimwamwom/crafty-dc-bot:latest
     container_name: crafty-bot
     ports:
       - "4883:4883"
