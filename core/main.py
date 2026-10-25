@@ -18,7 +18,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
-from core.helper import check_config, check_server_id, get_server_list, get_cached_servers
+from core.helper import (check_config, check_server_id, get_cached_servers, get_running_server_list,
+                         get_stopped_server_list)
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
 from core.embeds import new_embed, status_embed
 from core.status import StatusBoard
@@ -217,7 +218,7 @@ async def stats(ctx):
 # start a server
 @bot.hybrid_command(name='start', description='start a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
+@app_commands.autocomplete(server_id=get_stopped_server_list)
 @control_role()
 async def start(ctx, server_id):
     print('start')
@@ -292,7 +293,7 @@ async def check_can_stop(ctx, server_id, action: str) -> bool:
 # stop a server
 @bot.hybrid_command(name='stop', description='stop a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
+@app_commands.autocomplete(server_id=get_running_server_list)
 @control_role()
 async def stop(ctx, server_id):
     print('stop')
@@ -317,7 +318,7 @@ async def stop(ctx, server_id):
 # restart a server
 @bot.hybrid_command(name='restart', description='restart a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
+@app_commands.autocomplete(server_id=get_running_server_list)
 @control_role()
 async def restart(ctx, server_id):
     print('restart')
