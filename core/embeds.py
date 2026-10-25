@@ -41,6 +41,17 @@ def player_text(stats: dict) -> str:
     return text
 
 
+def add_usage_fields(embed: discord.Embed, stats: dict) -> None:
+    """
+    Add the CPU and RAM usage of a server to the embed.
+    """
+    embed.add_field(name='CPU', value=f"{stats.get('cpu', '?')}%")
+    mem = stats.get('mem', '?')
+    if isinstance(mem, (int, float)):
+        mem = f'{mem} MB'
+    embed.add_field(name='RAM', value=f"{mem} ({stats.get('mem_percent', '?')}%)")
+
+
 def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
     """
     Build an embed with the stats of one server.
@@ -55,11 +66,7 @@ def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
     if running:
         embed.add_field(name='Version', value=stats.get('version') or '-')
         embed.add_field(name='Players', value=player_text(stats), inline=False)
-        embed.add_field(name='CPU', value=f"{stats.get('cpu', '?')}%")
-        mem = stats.get('mem', '?')
-        if isinstance(mem, (int, float)):
-            mem = f'{mem} MB'
-        embed.add_field(name='RAM', value=f"{mem} ({stats.get('mem_percent', '?')}%)")
+        add_usage_fields(embed, stats)
     return embed
 
 

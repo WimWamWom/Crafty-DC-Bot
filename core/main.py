@@ -6,6 +6,7 @@ main loop and the event handlers.
 import asyncio
 import os
 import sys
+import time
 import traceback
 
 import discord
@@ -18,7 +19,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
-from core.helper import check_config, check_server_id, get_server_list, get_cached_servers
+from core.helper import (check_config, check_server_id, get_cached_servers, get_running_server_list,
+                         get_stopped_server_list)
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
 from core.embeds import new_embed, status_embed
 from core.status import StatusBoard
@@ -27,7 +29,9 @@ from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
-from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
+from core.motd import set_random_motd
+from core.address import has_free_domain, prepare_start
+from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_IDLE_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
                             SESSION_ENABLED, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
 
@@ -71,30 +75,27 @@ bot.add_check(command_channel_check)
 status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
 backup_scheduler = BackupScheduler()
 
-# track consecutive zero-player checks per server
-consecutive_zero = {}
+# when each running server was first seen without players (epoch seconds)
+empty_since = {}
 
 
 def auto_stop_eta(server_id: str) -> float | None:
     """
     Time (epoch seconds) when auto stop will stop the server if nobody joins, or None if auto stop is off.
     """
-    next_check = auto_stop.next_iteration
-    if not AUTO_STOP_ENABLED or next_check is None:
+    if not AUTO_STOP_ENABLED:
         return None
-    # the server is stopped on the second check in a row without players
-    remaining_checks = 1 if consecutive_zero.get(server_id, 0) >= 1 else 2
-    return next_check.timestamp() + (remaining_checks - 1) * AUTO_STOP_SLEEP_TIME
+    return empty_since.get(server_id, time.time()) + AUTO_STOP_IDLE_TIME
 
 
-sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta) if SESSION_ENABLED else None
+sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta, set_random_motd) if SESSION_ENABLED else None
 
 
-# stop servers after AUTO_STOP_SLEEP_TIME to 2x AUTO_STOP_SLEEP_TIME of inactivity (no players online)
-@tasks.loop(seconds=AUTO_STOP_SLEEP_TIME)
+# stop servers AUTO_STOP_IDLE_TIME after the last player left (or after the start if nobody joined)
+@tasks.loop(seconds=60)
 async def auto_stop():
     """
-    Automatically stop servers that have been inactive for a certain period of time.
+    Automatically stop servers that have been empty for AUTO_STOP_IDLE_TIME.
     """
     try:
         servers = await get_cached_servers()
@@ -105,29 +106,24 @@ async def auto_stop():
         for server in servers:
             server_id = server['server_id']
             stats = await get_server_stats(server_id)
-            # skip counting on error
+            # keep the timer on error
             if stats is None:
                 continue
 
-            # if server not running, clear any counters and continue
-            if not stats.get('running'):
-                consecutive_zero.pop(server_id, None)
+            # not running or players online: no timer
+            if not stats.get('running') or stats.get('online', 0) > 0:
+                empty_since.pop(server_id, None)
                 continue
 
-            if stats.get('online', 0) == 0:
-                consecutive_zero[server_id] = consecutive_zero.get(server_id, 0) + 1
-                # require two consecutive checks with 0 players before stopping
-                if consecutive_zero[server_id] >= 2:
-                    if sessions is not None:
-                        sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
-                    if await stop_server(server_id):
-                        print(f'auto stop: stopped {server["server_name"]}')
-                    elif sessions is not None:
-                        sessions.set_stop_reason(server_id, None)
-                    consecutive_zero.pop(server_id, None)
-            else:
-                # players online -> reset counter
-                consecutive_zero[server_id] = 0
+            since = empty_since.setdefault(server_id, time.time())
+            if time.time() - since >= AUTO_STOP_IDLE_TIME:
+                if sessions is not None:
+                    sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
+                if await stop_server(server_id):
+                    print(f'auto stop: stopped {server["server_name"]}')
+                    empty_since.pop(server_id, None)
+                elif sessions is not None:
+                    sessions.set_stop_reason(server_id, None)
     except Exception:
         # keep the loop alive on unexpected errors
         traceback.print_exc()
@@ -217,7 +213,7 @@ async def stats(ctx):
 # start a server
 @bot.hybrid_command(name='start', description='start a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
+@app_commands.autocomplete(server_id=get_stopped_server_list)
 @control_role()
 async def start(ctx, server_id):
     print('start')
@@ -233,6 +229,13 @@ async def start(ctx, server_id):
         return
     if running:
         await ctx.reply('Server already running', ephemeral=True)
+        return
+
+    # check before the backup, prepare_start checks again and takes the domain
+    free = await has_free_domain(server_id)
+    if not free:
+        await ctx.reply('failed to check which domains are free' if free is None
+                        else 'All domains are in use, stop a server first', ephemeral=True)
         return
 
     backup = needs_start_backup(server_id)
@@ -256,6 +259,15 @@ async def start(ctx, server_id):
                                   note=None if backup_ok else 'Backup failed, check the backups in Crafty')
         elif not backup_ok:
             await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
+
+    domain, error = await prepare_start(server_id)
+    if error is not None:
+        if session is not None:
+            await sessions.fail(session, error)
+        await ctx.reply(f'failed to start server: {error}', ephemeral=True)
+        return
+    if domain is not None and session is not None:
+        await sessions.update(session, address=domain)
 
     if await server_action(server_id, 'start_server'):
         mark_started(server_id)
@@ -292,7 +304,7 @@ async def check_can_stop(ctx, server_id, action: str) -> bool:
 # stop a server
 @bot.hybrid_command(name='stop', description='stop a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
+@app_commands.autocomplete(server_id=get_running_server_list)
 @control_role()
 async def stop(ctx, server_id):
     print('stop')
@@ -317,7 +329,7 @@ async def stop(ctx, server_id):
 # restart a server
 @bot.hybrid_command(name='restart', description='restart a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
+@app_commands.autocomplete(server_id=get_running_server_list)
 @control_role()
 async def restart(ctx, server_id):
     print('restart')
@@ -331,6 +343,7 @@ async def restart(ctx, server_id):
 
     if sessions is not None:
         sessions.mark_restart(server_id)
+    await set_random_motd(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
     else:

@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 
 import discord
 
-from core.embeds import COLOR_OFFLINE, COLOR_ONLINE, MAX_FIELD_LENGTH, new_embed, player_text
+from core.address import display_address
+from core.embeds import COLOR_OFFLINE, COLOR_ONLINE, MAX_FIELD_LENGTH, add_usage_fields, new_embed, player_text
 from core.server import get_server_stats, get_servers
 
 # Footer text used to find session messages again after a restart, followed by the server ID
@@ -45,10 +46,6 @@ class Session:
     message: discord.Message | None = None
 
 
-def _address(server: dict) -> str:
-    return f"{server.get('server_ip', '?')}:{server.get('server_port', '?')}"
-
-
 def _duration(seconds: float) -> str:
     minutes = int(seconds // 60)
     hours, minutes = divmod(minutes, 60)
@@ -64,12 +61,15 @@ class SessionTracker:
         channel_id: Channel for servers started outside the bot, and for all sessions if set. 0 = none.
         auto_stop_eta: Function that returns the time (epoch seconds) when auto stop will stop a server
             if nobody joins, or None if auto stop is off.
+        on_stop: Coroutine function called with the server ID when a server is seen stopped.
     """
 
-    def __init__(self, bot: discord.Client, channel_id: int, auto_stop_eta=None):
+    def __init__(self, bot: discord.Client, channel_id: int, auto_stop_eta=None, on_stop=None):
         self.bot = bot
         self.channel_id = channel_id
         self.auto_stop_eta = auto_stop_eta or (lambda server_id: None)
+        self.on_stop = on_stop
+        self.tasks: set[asyncio.Task] = set()
         self.sessions: dict[str, Session] = {}
         # reasons for stops requested by the bot, used when the server is seen stopped
         self.stop_reasons: dict[str, str] = {}
@@ -100,6 +100,7 @@ class SessionTracker:
         if session.phase == RUNNING:
             embed.add_field(name='Version', value=stats.get('version') or '-')
             embed.add_field(name='Players', value=player_text(stats)[:MAX_FIELD_LENGTH], inline=False)
+            add_usage_fields(embed, stats)
             embed.add_field(name='Online since', value=f'<t:{int(session.started_at)}:R>')
             eta = self.auto_stop_eta(session.server_id)
             if eta is not None:
@@ -152,16 +153,19 @@ class SessionTracker:
         Start a session for /start and post its message.
         """
         async with self.lock:
-            session = Session(server['server_id'], server['server_name'], _address(server), started_by=started_by,
-                              phase=BACKUP if backup else STARTING)
+            session = Session(server['server_id'], server['server_name'], display_address(server),
+                              started_by=started_by, phase=BACKUP if backup else STARTING)
             self.sessions[session.server_id] = session
             if self.channel_id:
                 channel, reference = None, None
             await self._show(session, channel, reference)
             return session
 
-    async def update(self, session: Session, phase: str | None = None, note: str | None = None) -> None:
+    async def update(self, session: Session, phase: str | None = None, note: str | None = None,
+                     address: str | None = None) -> None:
         async with self.lock:
+            if address is not None:
+                session.address = address
             if phase is not None:
                 session.phase = phase
                 session.requested_at = time.time()
@@ -222,8 +226,8 @@ class SessionTracker:
                                if f.name == 'Online since' and f.value.startswith('<t:')), None)
             started_by = next((f.value for f in embed.fields if f.name == 'Started by'), None)
             self.sessions[server_id] = Session(server_id, names[server_id]['server_name'],
-                                               _address(names[server_id]), started_by=started_by, phase=RUNNING,
-                                               started_at=started_at or time.time(), message=message)
+                                               display_address(names[server_id]), started_by=started_by,
+                                               phase=RUNNING, started_at=started_at or time.time(), message=message)
 
     async def tick(self) -> None:
         servers = await get_servers()
@@ -246,7 +250,7 @@ class SessionTracker:
                 if session is None:
                     if running:
                         # started outside the bot, e.g. in Crafty, or before the bot started
-                        session = Session(server_id, server['server_name'], _address(server), phase=RUNNING,
+                        session = Session(server_id, server['server_name'], display_address(server), phase=RUNNING,
                                           started_at=time.time(), stats=server_stats)
                         self.sessions[server_id] = session
                         await self._show(session)
@@ -273,4 +277,8 @@ class SessionTracker:
                     else:
                         reason = self.stop_reasons.get(server_id, 'stopped outside the bot')
                     self._finish(session, reason)
+                    if self.on_stop is not None:
+                        task = asyncio.create_task(self.on_stop(server_id))
+                        self.tasks.add(task)
+                        task.add_done_callback(self.tasks.discard)
                 await self._show(session)

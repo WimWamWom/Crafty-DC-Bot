@@ -24,7 +24,7 @@ TRUE_VALUES = ('1', 'true', 'yes', 'on')
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role, servers, list, time, weekday or timezone
+    # str, secret, int, bool, channel, role, servers, list, lines, domains, time, weekday or timezone
     kind: str
     default: object
     env: str | None
@@ -41,8 +41,10 @@ SECTIONS = {
     'servers': 'Server',
     'auto_stop': 'Auto-Stop',
     'status': 'Status-Embed',
-    'session': 'Server-Embeds',
+    'session': 'Start & Stopp',
+    'address': 'Domains',
     'backup': 'Backups',
+    'motd': 'MOTD',
     'web': 'Webinterface',
 }
 
@@ -67,8 +69,9 @@ FIELDS = [
           'Server-IDs, die im Bot auswählbar sind (auch für Status und Auto-Stop). Leer = alle'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',
           'Leere Server automatisch stoppen'),
-    Field('auto_stop', 'interval', 'int', 1800, 'AUTO_STOP_SLEEP_TIME', 'Prüfintervall (Sekunden)',
-          'Ein Server wird nach zwei Prüfungen ohne Spieler in Folge gestoppt'),
+    Field('auto_stop', 'idle_minutes', 'int', 120, 'AUTO_STOP_IDLE_MINUTES', 'Wartezeit (Minuten)',
+          'So lange nachdem der letzte Spieler gegangen ist (oder nach dem Start, wenn niemand kommt) '
+          'wird der Server gestoppt. Kommt vorher jemand, beginnt die Zeit beim nächsten Verlassen neu'),
     Field('status', 'enabled', 'bool', False, 'STATUS_ENABLED', 'Statusübersicht aktiv',
           'Statusübersicht im Status-Kanal anzeigen'),
     Field('status', 'channel_id', 'channel', 0, 'STATUS_CHANNEL_ID', 'Status-Kanal',
@@ -79,9 +82,27 @@ FIELDS = [
           'Bei /start antwortet der Bot mit einem Embed, das „Backup wird erstellt“, dann den laufenden Server '
           'mit Spielern und der Zeit bis zum Auto-Stop und am Ende Grund und Laufzeit des Stopps zeigt. '
           'Es bleibt danach im Kanal stehen und ersetzt die Start/Stop-Webhooks von Crafty'),
-    Field('session', 'channel_id', 'channel', 0, 'SESSION_CHANNEL_ID', 'Kanal für Server-Embeds',
+    Field('session', 'channel_id', 'channel', 0, 'SESSION_CHANNEL_ID', 'Kanal für Start/Stopp-Nachrichten',
           'Alle Embeds erscheinen hier, auch für Server, die außerhalb des Bots gestartet wurden (z. B. in Crafty). '
           'Leer = im Kanal von /start, Starts außerhalb des Bots im Befehlskanal'),
+    Field('address', 'enabled', 'bool', False, None, 'Erste freie Domain automatisch vergeben',
+          'Vor jedem /start setzt der Bot den Port des Servers auf den Port der ersten Domain aus der Liste, '
+          'die gerade kein anderer Server benutzt. Sind alle belegt, lehnt der Bot den Start ab. '
+          'Der API-Token muss von einem Superuser sein und die Rechte CONFIG und FILES haben, '
+          'denn nur Superuser dürfen in Crafty den Port eines Servers ändern'),
+    Field('address', 'domains', 'domains', [], None, 'Domains',
+          'Eine pro Zeile als domain:port, z. B. mc1.example.de:25566, in der Reihenfolge der Vergabe. '
+          'Läuft ein Server auf einem dieser Ports, zeigt das Start-Embed die Domain statt IP:Port, '
+          'auch wenn die automatische Vergabe aus ist',
+          details='Pro Domain in Cloudflare (nur DNS, graue Wolke):\n'
+                  'Ein A-Eintrag (oder DDNS) für den Host, z. B. mc.example.de, den alle Domains als Ziel nutzen\n'
+                  'Ein SRV-Eintrag _minecraft._tcp.<name> mit Priorität 0, Gewicht 5, dem Port und dem Host als Ziel\n'
+                  'Beispiel:\n'
+                  '_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de\n'
+                  'Im Router:\n'
+                  'Jeden Port der Liste (TCP) an den Rechner mit Crafty weiterleiten'),
+    Field('address', 'excluded_servers', 'servers', [], None, 'Server mit festem Port',
+          'Bei diesen Servern ändert der Bot den Port nie. Ihr Port zählt trotzdem als belegt, solange sie laufen'),
     Field('backup', 'enabled', 'bool', False, None, 'Automatische Backups aktiv',
           'Der Bot legt bei jedem verfügbaren Server die Backup-Konfigurationen „Bot Start“, „Bot Täglich“ '
           'und „Bot Wöchentlich“ in Crafty an und hält sie aktuell. Backups werden nur erstellt, '
@@ -134,6 +155,21 @@ FIELDS = [
           'Wird nach dem Backup an laufende Server gesendet. Leer = keiner'),
     Field('backup', 'timeout', 'int', 600, None, 'Maximale Wartezeit beim Start (Sekunden)',
           'So lange wartet /start auf das Backup. Danach startet der Server trotzdem'),
+    Field('motd', 'enabled', 'bool', False, None, 'Zufällige MOTD aktiv',
+          'Vor jedem Start und Neustart durch den Bot und nach jedem Stopp schreibt der Bot eine zufällige '
+          'Nachricht aus der Liste als motd in die server.properties. Sie wechselt also pro Serverstart, '
+          'nicht bei jedem Neuladen der Serverliste. Der API-Token braucht dafür das Recht FILES'),
+    Field('motd', 'messages', 'lines', [], None, 'Nachrichten',
+          'Eine Nachricht pro Zeile. \\n im Text = zweite Zeile, &a, &l usw. = Farben und Formatierung',
+          details='Farben:\n'
+                  '&0 Schwarz, &1 Dunkelblau, &2 Dunkelgrün, &3 Türkis, &4 Dunkelrot, &5 Lila, &6 Gold, &7 Grau\n'
+                  '&8 Dunkelgrau, &9 Blau, &a Grün, &b Hellblau, &c Rot, &d Pink, &e Gelb, &f Weiß\n'
+                  'Formatierung:\n'
+                  '&l fett, &o kursiv, &n unterstrichen, &m durchgestrichen, &k verschlüsselt, &r zurücksetzen\n'
+                  'Beispiel:\n'
+                  '&6&lWimWamWom &7| &aHeute mit Creeper-Garantie\\n&eKomm vorbei!'),
+    Field('motd', 'excluded_servers', 'servers', [], None, 'Server ohne zufällige MOTD',
+          'Bei diesen Servern lässt der Bot die motd in der server.properties unverändert'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
           'Port des Webinterfaces. In Docker 4883 lassen und stattdessen das Port-Mapping ändern'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
@@ -192,6 +228,30 @@ def parse_value(field: Field, raw):
         if isinstance(raw, str):
             raw = raw.splitlines()
         return [str(item).strip().strip('/') for item in raw if str(item).strip().strip('/')]
+    if field.kind == 'lines':
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            raw = raw.splitlines()
+        return [str(item).strip() for item in raw if str(item).strip()]
+    if field.kind == 'domains':
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            raw = raw.splitlines()
+        domains, ports = [], set()
+        for item in raw:
+            line = str(item).strip()
+            if not line:
+                continue
+            match = re.fullmatch(r'([A-Za-z0-9.-]+):(\d{1,5})', line)
+            if not match or not 0 < int(match[2]) < 65536:
+                raise ValueError(f'{field.label}: expected domain:port, got {line}')
+            if int(match[2]) in ports:
+                raise ValueError(f'{field.label}: port {match[2]} is used twice')
+            ports.add(int(match[2]))
+            domains.append(f'{match[1].lower()}:{int(match[2])}')
+        return domains
     if field.kind == 'servers':
         if raw is None:
             return []
