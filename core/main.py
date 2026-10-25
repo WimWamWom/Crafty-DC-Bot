@@ -6,6 +6,7 @@ main loop and the event handlers.
 import asyncio
 import os
 import sys
+import time
 import traceback
 
 import discord
@@ -29,7 +30,7 @@ from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
 from core.motd import set_random_motd
-from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
+from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_IDLE_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
                             SESSION_ENABLED, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
 
@@ -73,30 +74,27 @@ bot.add_check(command_channel_check)
 status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
 backup_scheduler = BackupScheduler()
 
-# track consecutive zero-player checks per server
-consecutive_zero = {}
+# when each running server was first seen without players (epoch seconds)
+empty_since = {}
 
 
 def auto_stop_eta(server_id: str) -> float | None:
     """
     Time (epoch seconds) when auto stop will stop the server if nobody joins, or None if auto stop is off.
     """
-    next_check = auto_stop.next_iteration
-    if not AUTO_STOP_ENABLED or next_check is None:
+    if not AUTO_STOP_ENABLED:
         return None
-    # the server is stopped on the second check in a row without players
-    remaining_checks = 1 if consecutive_zero.get(server_id, 0) >= 1 else 2
-    return next_check.timestamp() + (remaining_checks - 1) * AUTO_STOP_SLEEP_TIME
+    return empty_since.get(server_id, time.time()) + AUTO_STOP_IDLE_TIME
 
 
 sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta, set_random_motd) if SESSION_ENABLED else None
 
 
-# stop servers after AUTO_STOP_SLEEP_TIME to 2x AUTO_STOP_SLEEP_TIME of inactivity (no players online)
-@tasks.loop(seconds=AUTO_STOP_SLEEP_TIME)
+# stop servers AUTO_STOP_IDLE_TIME after the last player left (or after the start if nobody joined)
+@tasks.loop(seconds=60)
 async def auto_stop():
     """
-    Automatically stop servers that have been inactive for a certain period of time.
+    Automatically stop servers that have been empty for AUTO_STOP_IDLE_TIME.
     """
     try:
         servers = await get_cached_servers()
@@ -107,29 +105,24 @@ async def auto_stop():
         for server in servers:
             server_id = server['server_id']
             stats = await get_server_stats(server_id)
-            # skip counting on error
+            # keep the timer on error
             if stats is None:
                 continue
 
-            # if server not running, clear any counters and continue
-            if not stats.get('running'):
-                consecutive_zero.pop(server_id, None)
+            # not running or players online: no timer
+            if not stats.get('running') or stats.get('online', 0) > 0:
+                empty_since.pop(server_id, None)
                 continue
 
-            if stats.get('online', 0) == 0:
-                consecutive_zero[server_id] = consecutive_zero.get(server_id, 0) + 1
-                # require two consecutive checks with 0 players before stopping
-                if consecutive_zero[server_id] >= 2:
-                    if sessions is not None:
-                        sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
-                    if await stop_server(server_id):
-                        print(f'auto stop: stopped {server["server_name"]}')
-                    elif sessions is not None:
-                        sessions.set_stop_reason(server_id, None)
-                    consecutive_zero.pop(server_id, None)
-            else:
-                # players online -> reset counter
-                consecutive_zero[server_id] = 0
+            since = empty_since.setdefault(server_id, time.time())
+            if time.time() - since >= AUTO_STOP_IDLE_TIME:
+                if sessions is not None:
+                    sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
+                if await stop_server(server_id):
+                    print(f'auto stop: stopped {server["server_name"]}')
+                    empty_since.pop(server_id, None)
+                elif sessions is not None:
+                    sessions.set_stop_reason(server_id, None)
     except Exception:
         # keep the loop alive on unexpected errors
         traceback.print_exc()

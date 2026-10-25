@@ -8,7 +8,8 @@ STATUS_SUCCESS = 200
 API_ENDPOINT = '/api/v2/servers/'
 GUILD_ID: int = get('discord.guild_id')
 AUTO_STOP_ENABLED: bool = get('auto_stop.enabled')
-AUTO_STOP_SLEEP_TIME: int = max(get('auto_stop.interval'), 60)
+# Time in seconds a server may be empty before auto stop stops it
+AUTO_STOP_IDLE_TIME: int = max(get('auto_stop.idle_minutes'), 1) * 60
 
 # Permissions (0 = no restriction or switched off)
 # Role that is allowed to start, stop and restart servers

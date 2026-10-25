@@ -68,8 +68,9 @@ FIELDS = [
           'Server-IDs, die im Bot auswählbar sind (auch für Status und Auto-Stop). Leer = alle'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',
           'Leere Server automatisch stoppen'),
-    Field('auto_stop', 'interval', 'int', 1800, 'AUTO_STOP_SLEEP_TIME', 'Prüfintervall (Sekunden)',
-          'Ein Server wird nach zwei Prüfungen ohne Spieler in Folge gestoppt'),
+    Field('auto_stop', 'idle_minutes', 'int', 120, 'AUTO_STOP_IDLE_MINUTES', 'Wartezeit (Minuten)',
+          'So lange nachdem der letzte Spieler gegangen ist (oder nach dem Start, wenn niemand kommt) '
+          'wird der Server gestoppt. Kommt vorher jemand, beginnt die Zeit beim nächsten Verlassen neu'),
     Field('status', 'enabled', 'bool', False, 'STATUS_ENABLED', 'Statusübersicht aktiv',
           'Statusübersicht im Status-Kanal anzeigen'),
     Field('status', 'channel_id', 'channel', 0, 'STATUS_CHANNEL_ID', 'Status-Kanal',

@@ -37,9 +37,9 @@
         <Description>Auto Stop Server aktivieren</Description>
       </Variable>
       <Variable>
-        <Name>AUTO_STOP_SLEEP_TIME</Name>
-        <Default>1800</Default>
-        <Description>Wartezeit in Sekunden bis Auto Stop</Description>
+        <Name>AUTO_STOP_IDLE_MINUTES</Name>
+        <Default>120</Default>
+        <Description>Minuten, nachdem der letzte Spieler gegangen ist, bis Auto Stop</Description>
       </Variable>
       <Variable>
         <Name>GUILD_ID</Name>

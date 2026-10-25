@@ -267,7 +267,7 @@ TABS = {
         ('Verfügbare Server', ['servers.allowed']),
     ]),
     'auto_stop': ('Auto-Stop', 'Leere Server automatisch herunterfahren.', [
-        ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.interval']),
+        ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.idle_minutes']),
     ]),
     'status': ('Status', 'Eine Nachricht mit allen Servern, die sich selbst aktualisiert.', [
         ('Statusübersicht', ['status.enabled', 'status.channel_id', 'status.update_interval']),

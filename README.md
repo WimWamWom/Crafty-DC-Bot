@@ -94,7 +94,7 @@ If a required setting is missing, only the web interface starts.
 | `discord.control_role_id` | `CONTROL_ROLE_ID` | The control role |
 | `servers.allowed` | `ALLOWED_SERVERS` | Server IDs shown in the bot, comma-separated (empty = all) |
 | `auto_stop.enabled` | `ENABLE_AUTO_STOP_SERVER` | Stop empty servers automatically |
-| `auto_stop.interval` | `AUTO_STOP_SLEEP_TIME` | Check interval in seconds (default 1800), stop after two empty checks in a row |
+| `auto_stop.idle_minutes` | `AUTO_STOP_IDLE_MINUTES` | Stop a server this many minutes after the last player left, or after the start if nobody joins (default 120) |
 | `status.enabled` | `STATUS_ENABLED` | Switch: show the self-updating status board |
 | `status.channel_id` | `STATUS_CHANNEL_ID` | Channel for the status board |
 | `status.update_interval` | `STATUS_UPDATE_INTERVAL` | Status board update interval in seconds (default 60) |
