@@ -50,50 +50,50 @@ SECTIONS = {
 
 FIELDS = [
     Field('crafty', 'url', 'str', '', 'SERVER_URL', 'Crafty-URL',
-          'URL deines Crafty Controllers, z. B. https://crafty.example.de:8443', required=True),
+          'Adresse deines Crafty Controllers, z. B. https://crafty.example.de:8443', required=True),
     Field('crafty', 'token', 'secret', '', 'CRAFTY_TOKEN', 'Crafty API-Token',
-          'API-Key eines Crafty-Benutzers mit Rechten auf die Server', required=True),
+          'In Crafty beim Benutzer des Bots unter „API Key“ erstellen. Rechte: COMMANDS, TERMINAL, PLAYERS, '
+          'dazu BACKUP für Backups, FILES für MOTD und Domains. Für Domains muss es ein Superuser mit CONFIG sein',
+          required=True),
     Field('discord', 'token', 'secret', '', 'DISCORD_TOKEN', 'Discord Bot-Token',
-          'Token aus dem Discord Developer Portal', required=True),
+          'Im Discord Developer Portal: deine Anwendung → Bot → Reset Token', required=True),
     Field('discord', 'guild_id', 'int', 0, 'GUILD_ID', 'Discord-Server-ID',
-          'ID deines Discord-Servers (Guild). Ohne sie gibt es keine Slash-Commands'),
+          'Rechtsklick auf deinen Discord-Server → „Server-ID kopieren“ (dafür in Discord den Entwicklermodus '
+          'einschalten). Ohne ID gibt es keine Slash-Befehle'),
     Field('discord', 'command_channel_enabled', 'bool', False, 'COMMAND_CHANNEL_ENABLED',
-          'Befehle nur in einem Kanal', 'Aus = der Bot reagiert in allen Kanälen'),
+          'Befehle nur in einem Kanal', 'Aus = Befehle funktionieren in allen Kanälen'),
     Field('discord', 'command_channel_id', 'channel', 0, 'COMMAND_CHANNEL_ID', 'Befehlskanal',
-          'Nur in diesem Kanal reagiert der Bot auf Befehle'),
+          'Nur hier reagiert der Bot auf Befehle'),
     Field('discord', 'control_role_enabled', 'bool', False, 'CONTROL_ROLE_ENABLED',
-          'Steuern nur mit Rolle', 'Aus = jeder darf Server starten, stoppen und neu starten'),
+          'Steuern nur mit Rolle', 'Aus = jeder darf /start, /stop und /restart benutzen'),
     Field('discord', 'control_role_id', 'role', 0, 'CONTROL_ROLE_ID', 'Steuer-Rolle',
-          'Nur diese Rolle darf Server starten, stoppen und neu starten'),
+          'Nur Mitglieder mit dieser Rolle dürfen /start, /stop und /restart benutzen'),
     Field('servers', 'allowed', 'servers', [], 'ALLOWED_SERVERS', 'Verfügbare Server',
-          'Server-IDs, die im Bot auswählbar sind (auch für Status und Auto-Stop). Leer = alle'),
+          'Nur diese Server zeigt und steuert der Bot (Befehle, Status, Auto-Stop, Backups). Nichts ausgewählt = alle'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',
-          'Leere Server automatisch stoppen'),
+          'Server stoppen, wenn eine Weile niemand online war'),
     Field('auto_stop', 'idle_minutes', 'int', 120, 'AUTO_STOP_IDLE_MINUTES', 'Wartezeit (Minuten)',
-          'So lange nachdem der letzte Spieler gegangen ist (oder nach dem Start, wenn niemand kommt) '
-          'wird der Server gestoppt. Kommt vorher jemand, beginnt die Zeit beim nächsten Verlassen neu'),
+          'So viele Minuten ohne Spieler, dann wird gestoppt. Die Zeit läuft ab dem Moment, in dem der letzte '
+          'Spieler geht, oder ab dem Start, wenn niemand kommt'),
     Field('status', 'enabled', 'bool', False, 'STATUS_ENABLED', 'Statusübersicht aktiv',
-          'Statusübersicht im Status-Kanal anzeigen'),
+          'Eine Nachricht mit allen Servern, die sich selbst aktualisiert'),
     Field('status', 'channel_id', 'channel', 0, 'STATUS_CHANNEL_ID', 'Status-Kanal',
-          'Kanal mit der Statusübersicht, die sich selbst aktualisiert'),
+          'In diesem Kanal steht die Statusübersicht'),
     Field('status', 'update_interval', 'int', 60, 'STATUS_UPDATE_INTERVAL', 'Aktualisierung (Sekunden)',
-          'Wie oft die Statusübersicht aktualisiert wird'),
-    Field('session', 'enabled', 'bool', True, 'SESSION_ENABLED', 'Embed bei jedem Serverstart',
-          'Bei /start antwortet der Bot mit einem Embed, das „Backup wird erstellt“, dann den laufenden Server '
-          'mit Spielern und der Zeit bis zum Auto-Stop und am Ende Grund und Laufzeit des Stopps zeigt. '
-          'Es bleibt danach im Kanal stehen und ersetzt die Start/Stop-Webhooks von Crafty'),
+          'Wie oft die Statusübersicht neu geladen wird'),
+    Field('session', 'enabled', 'bool', True, 'SESSION_ENABLED', 'Nachricht bei jedem Serverstart',
+          'Der Bot schreibt bei jedem Start eine Nachricht, die mitläuft: Backup, Start, online mit Spielern, '
+          'CPU/RAM und Auto-Stop-Countdown, am Ende gestoppt mit Grund und Laufzeit. '
+          'Ersetzt die Start/Stopp-Webhooks von Crafty'),
     Field('session', 'channel_id', 'channel', 0, 'SESSION_CHANNEL_ID', 'Kanal für Start/Stopp-Nachrichten',
-          'Alle Embeds erscheinen hier, auch für Server, die außerhalb des Bots gestartet wurden (z. B. in Crafty). '
-          'Leer = im Kanal von /start, Starts außerhalb des Bots im Befehlskanal'),
+          'Hier erscheinen alle diese Nachrichten, auch für Starts direkt in Crafty. Leer = im Kanal von /start, '
+          'Starts in Crafty dann im Befehlskanal'),
     Field('address', 'enabled', 'bool', False, None, 'Erste freie Domain automatisch vergeben',
-          'Vor jedem /start setzt der Bot den Port des Servers auf den Port der ersten Domain aus der Liste, '
-          'die gerade kein anderer Server benutzt. Sind alle belegt, lehnt der Bot den Start ab. '
-          'Der API-Token muss von einem Superuser sein und die Rechte CONFIG und FILES haben, '
-          'denn nur Superuser dürfen in Crafty den Port eines Servers ändern'),
+          'Vor jedem /start bekommt der Server den Port der ersten Domain aus der Liste, die gerade frei ist. '
+          'Ist keine frei, startet er nicht. Braucht einen Superuser-Token mit CONFIG und FILES'),
     Field('address', 'domains', 'domains', [], None, 'Domains',
-          'Eine pro Zeile als domain:port, z. B. mc1.example.de:25566, in der Reihenfolge der Vergabe. '
-          'Läuft ein Server auf einem dieser Ports, zeigt das Start-Embed die Domain statt IP:Port, '
-          'auch wenn die automatische Vergabe aus ist',
+          'Eine pro Zeile als domain:port, z. B. mc1.example.de:25566. Die obere wird zuerst vergeben. '
+          'Läuft ein Server auf einem dieser Ports, zeigt das Start-Embed die Domain statt IP:Port',
           details='Pro Domain in Cloudflare (nur DNS, graue Wolke):\n'
                   'Ein A-Eintrag (oder DDNS) für den Host, z. B. mc.example.de, den alle Domains als Ziel nutzen\n'
                   'Ein SRV-Eintrag _minecraft._tcp.<name> mit Priorität 0, Gewicht 5, dem Port und dem Host als Ziel\n'
@@ -102,40 +102,35 @@ FIELDS = [
                   'Im Router:\n'
                   'Jeden Port der Liste (TCP) an den Rechner mit Crafty weiterleiten'),
     Field('address', 'excluded_servers', 'servers', [], None, 'Server mit festem Port',
-          'Bei diesen Servern ändert der Bot den Port nie. Ihr Port zählt trotzdem als belegt, solange sie laufen'),
+          'Diese Server behalten immer ihren Port. Solange sie laufen, gilt ihr Port als belegt'),
     Field('backup', 'enabled', 'bool', False, None, 'Automatische Backups aktiv',
-          'Der Bot legt bei jedem verfügbaren Server die Backup-Konfigurationen „Bot Start“, „Bot Täglich“ '
-          'und „Bot Wöchentlich“ in Crafty an und hält sie aktuell. Backups werden nur erstellt, '
-          'wenn der Server seit dem letzten Backup dieser Art online war'),
+          'Der Bot legt in Crafty die Backups „Bot Start“, „Bot Täglich“ und „Bot Wöchentlich“ an. '
+          'Gesichert wird nur, wenn der Server seit dem letzten Backup an war'),
     Field('backup', 'excluded_servers', 'servers', [], None, 'Server ohne Backups',
-          'Für diese Server erstellt der Bot keine Backups. Ihre bisherigen Bot-Backups bleiben, '
-          'außer die Option darunter ist an'),
+          'Für diese Server macht der Bot keine Backups'),
     Field('backup', 'delete_excluded', 'bool', False, None, 'Bot-Backups dieser Server löschen',
-          'Löscht alle Backups von „Bot Start“, „Bot Täglich“ und „Bot Wöchentlich“ der Server oben. '
-          'Die Welt selbst und Backups, die du in Crafty angelegt hast, bleiben. Kann nicht rückgängig gemacht werden'),
-    Field('backup', 'delete_after_days', 'int', 0, None, 'Bot-Backups inaktiver Server löschen nach (Tagen)',
-          'War ein Server so viele Tage nicht online, löscht der Bot alle seine Bot-Backups, '
-          'weil nur noch die aktuelle Welt gebraucht wird. Beim nächsten Start gibt es wieder ein Backup. '
-          'Die Welt selbst und Backups, die du in Crafty angelegt hast, bleiben. 0 = aus'),
+          'Löscht die Bot-Backups der Server oben. Die Welt und deine eigenen Crafty-Backups bleiben. '
+          'Nicht rückgängig zu machen'),
+    Field('backup', 'delete_after_days', 'int', 0, None, 'Bot-Backups löschen nach (Tagen aus)',
+          'War ein Server so viele Tage aus, löscht der Bot seine Bot-Backups. Die Welt und deine eigenen '
+          'Crafty-Backups bleiben, beim nächsten Start gibt es wieder ein Backup. 0 = nie'),
     Field('backup', 'on_start', 'int', 5, None, 'Backups vor dem Start (Anzahl)',
-          'Vor /start wird ein Backup erstellt, der Server startet erst danach. '
-          'So viele werden behalten, ältere löscht Crafty. 0 = aus'),
+          'Vor jedem /start wird erst gesichert, dann gestartet. So viele bleiben, ältere werden gelöscht. 0 = aus'),
     Field('backup', 'daily', 'int', 7, None, 'Tägliche Backups (Anzahl)',
-          'So viele tägliche Backups werden behalten. 0 = aus'),
+          'So viele tägliche Backups bleiben. 0 = aus'),
     Field('backup', 'weekly', 'int', 4, None, 'Wöchentliche Backups (Anzahl)',
-          'So viele wöchentliche Backups werden behalten. 0 = aus'),
+          'So viele wöchentliche Backups bleiben. 0 = aus'),
     Field('backup', 'time', 'time', '04:00', None, 'Uhrzeit',
-          'Zu dieser Uhrzeit laufen die täglichen und wöchentlichen Backups. War der Bot zu der Zeit aus, '
-          'holt er sie beim nächsten Start nach'),
+          'Zu dieser Zeit laufen die täglichen und wöchentlichen Backups. War der Bot aus, holt er sie nach'),
     Field('backup', 'weekday', 'weekday', 6, None, 'Wochentag für wöchentliche Backups',
           'An diesem Tag läuft zusätzlich zum täglichen das wöchentliche Backup'),
     Field('backup', 'timezone', 'timezone', 'Europe/Berlin', 'TZ', 'Zeitzone',
-          'Zeitzone für die Uhrzeit, z. B. Europe/Berlin'),
+          'Für die Uhrzeit oben, z. B. Europe/Berlin'),
     Field('backup', 'compress', 'bool', True, None, 'Komprimieren',
-          'Backups als komprimiertes ZIP speichern. Spart meist 30–50 % Platz, dauert etwas länger'),
+          'Spart meist 30–50 % Platz, dauert etwas länger'),
     Field('backup', 'excluded_dirs', 'list', ['logs', 'crash-reports', 'cache', 'debug'], None,
           'Ausgeschlossene Ordner',
-          'Ein Ordner pro Zeile, relativ zum Serverordner, z. B. logs oder plugins/dynmap/web/tiles',
+          'Diese Ordner kommen nicht ins Backup. Einer pro Zeile, vom Serverordner aus, z. B. logs',
           details='Kann sicher weg (wird neu erzeugt oder ist nur zur Fehlersuche):\n'
                   'logs, crash-reports, debug – Logdateien und Absturzberichte\n'
                   'cache – Download-Cache von Paper/Spigot\n'
@@ -150,30 +145,23 @@ FIELDS = [
                   'mods, plugins, config, defaultconfigs, kubejs – Mods, Plugins und ihre Einstellungen\n'
                   'server.properties, ops.json, whitelist.json und andere Dateien im Hauptordner'),
     Field('backup', 'before_command', 'str', 'save-off', None, 'Befehl vor dem Backup',
-          'Wird an laufende Server gesendet, damit die Welt während des Backups nicht geschrieben wird. Leer = keiner'),
+          'Geht an laufende Server, bevor gesichert wird. save-off = Welt solange nicht speichern. Leer = keiner'),
     Field('backup', 'after_command', 'str', 'save-on', None, 'Befehl nach dem Backup',
-          'Wird nach dem Backup an laufende Server gesendet. Leer = keiner'),
-    Field('backup', 'timeout', 'int', 600, None, 'Maximale Wartezeit beim Start (Sekunden)',
-          'So lange wartet /start auf das Backup. Danach startet der Server trotzdem'),
+          'Geht danach an laufende Server. save-on = Speichern wieder an. Leer = keiner'),
+    Field('backup', 'timeout', 'int', 600, None, 'Höchstens warten auf Start-Backup (Sekunden)',
+          'Dauert das Backup vor /start länger, startet der Server trotzdem'),
     Field('motd', 'enabled', 'bool', False, None, 'Zufällige MOTD aktiv',
-          'Vor jedem Start und Neustart durch den Bot und nach jedem Stopp schreibt der Bot eine zufällige '
-          'Nachricht aus der Liste als motd in die server.properties. Sie wechselt also pro Serverstart, '
-          'nicht bei jedem Neuladen der Serverliste. Der API-Token braucht dafür das Recht FILES'),
+          'Die MOTD ist der Text unter dem Servernamen in der Serverliste. Bei jedem Start setzt der Bot eine '
+          'zufällige Nachricht aus der Liste. Braucht das Recht FILES'),
     Field('motd', 'messages', 'lines', [], None, 'Nachrichten',
-          'Eine Nachricht pro Zeile. \\n im Text = zweite Zeile, &a, &l usw. = Farben und Formatierung',
-          details='Farben:\n'
-                  '&0 Schwarz, &1 Dunkelblau, &2 Dunkelgrün, &3 Türkis, &4 Dunkelrot, &5 Lila, &6 Gold, &7 Grau\n'
-                  '&8 Dunkelgrau, &9 Blau, &a Grün, &b Hellblau, &c Rot, &d Pink, &e Gelb, &f Weiß\n'
-                  'Formatierung:\n'
-                  '&l fett, &o kursiv, &n unterstrichen, &m durchgestrichen, &k verschlüsselt, &r zurücksetzen\n'
-                  'Beispiel:\n'
-                  '&6&lWimWamWom &7| &aHeute mit Creeper-Garantie\\n&eKomm vorbei!'),
+          'Eine Nachricht pro Zeile. Farben und Formatierung mit &-Codes (siehe Hinweise), zweite Zeile mit \\n. '
+          'Unten siehst du die Vorschau'),
     Field('motd', 'excluded_servers', 'servers', [], None, 'Server ohne zufällige MOTD',
-          'Bei diesen Servern lässt der Bot die motd in der server.properties unverändert'),
+          'Diese Server behalten ihre MOTD'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
-          'Port des Webinterfaces. In Docker 4883 lassen und stattdessen das Port-Mapping ändern'),
+          'In Docker 4883 lassen und nur das Port-Mapping ändern'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
-          'Passwort für das Webinterface (Benutzername beliebig). Leer = kein Schutz'),
+          'Schützt das Webinterface (Benutzername egal). Leer = kein Passwort'),
 ]
 
 FIELDS_BY_NAME = {f'{field.section}.{field.key}': field for field in FIELDS}

@@ -137,6 +137,18 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-entry .title { color: #fff; }
 .motd-entry .line { color: #aaa; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.35em; }
 .motd-entry .k { filter: blur(3px); }
+/* MOTD code legend: every color and format code shown in its own look */
+.mc-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
+.mc-code { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 2px;
+           background: #000; font: 14px var(--mono); }
+.mc-code code { color: var(--muted); font: inherit; }
+.mc-code.light { background: #aaa; }
+.mc-code.light code { color: #333; }
+.mc-code .k { filter: blur(3px); }
+.mc-heading { margin: 12px 0 0; font-weight: 600; color: var(--text); }
+.mc-tips { margin-top: 6px; padding-left: 18px; }
+.mc-example { margin-top: 8px; padding: 8px 10px; border-radius: 2px; background: #000; font: 14px/1.35 var(--mono);
+              color: #aaa; white-space: pre-wrap; }
 
 .notice { padding: 14px 18px; border: 1px solid; border-radius: 4px; font-size: 14px; display: flex; gap: 10px; }
 .notice::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; flex: none; margin-top: 6px; }
@@ -226,6 +238,12 @@ function renderMotdLine(text, target) {
     target.appendChild(span);
   }
 }
+document.querySelectorAll('[data-motd]').forEach(function (example) {
+  example.dataset.motd.split('\\\\n').forEach(function (line, index) {
+    if (index) example.appendChild(document.createElement('br'));
+    renderMotdLine(line, example);
+  });
+});
 document.querySelectorAll('.motd-preview').forEach(function (preview) {
   var input = document.getElementById(preview.dataset.for);
   var update = function () {
@@ -298,6 +316,45 @@ TABS = {
 
 # Fields that get a preview of every line as a Minecraft server list entry
 MOTD_PREVIEW = ('motd.messages',)
+
+# Minecraft color and format codes for the MOTD hints: code, name, color or style
+MC_COLOR_CODES = [
+    ('0', 'Schwarz', '#000000'), ('1', 'Dunkelblau', '#0000aa'), ('2', 'Dunkelgrün', '#00aa00'),
+    ('3', 'Türkis', '#00aaaa'), ('4', 'Dunkelrot', '#aa0000'), ('5', 'Lila', '#aa00aa'),
+    ('6', 'Gold', '#ffaa00'), ('7', 'Grau', '#aaaaaa'), ('8', 'Dunkelgrau', '#555555'),
+    ('9', 'Blau', '#5555ff'), ('a', 'Grün', '#55ff55'), ('b', 'Hellblau', '#55ffff'),
+    ('c', 'Rot', '#ff5555'), ('d', 'Pink', '#ff55ff'), ('e', 'Gelb', '#ffff55'), ('f', 'Weiß', '#ffffff'),
+]
+MC_FORMAT_CODES = [
+    ('l', 'Fett', 'font-weight:700'), ('o', 'Kursiv', 'font-style:italic'),
+    ('n', 'Unterstrichen', 'text-decoration:underline'), ('m', 'Durchgestrichen', 'text-decoration:line-through'),
+    ('k', 'Verschlüsselt', ''), ('r', 'Zurücksetzen', ''),
+]
+MOTD_EXAMPLE = '&6&lWimWamWom &7| &aHeute mit Creeper-Garantie\\n&eKomm vorbei!'
+
+
+def _motd_hints() -> str:
+    """
+    The hints box of the MOTD messages: all color and format codes in their own look, tips and an example.
+    """
+    colors = ''.join(f'<span class="mc-code{" light" if code == "0" else ""}"><code>&amp;{code}</code>'
+                     f'<span style="color:{color}">{name}</span></span>'
+                     for code, name, color in MC_COLOR_CODES)
+    formats = ''.join(f'<span class="mc-code"><code>&amp;{code}</code>'
+                      f'<span{" class=k" if code == "k" else ""} style="color:#fff;{style}">{name}</span></span>'
+                      for code, name, style in MC_FORMAT_CODES)
+    tips = ('<ul class="mc-tips">'
+            '<li>Erst die Farbe, dann die Formatierung, z. B. &amp;6&amp;l für fett in Gold. '
+            'Eine Farbe nach &amp;l hebt das Fett wieder auf</li>'
+            '<li>\\n beginnt die zweite Zeile</li>'
+            '<li>Pro Zeile passen etwa 45 Zeichen in die Serverliste</li>'
+            '<li>Statt &amp; geht auch §</li></ul>')
+    return (f'<details><summary>Hinweise: Farben und Formatierung</summary>'
+            f'<p class="mc-heading">Farben</p><div class="mc-codes">{colors}</div>'
+            f'<p class="mc-heading">Formatierung</p><div class="mc-codes">{formats}</div>'
+            f'<p class="mc-heading">Tipps</p>{tips}'
+            f'<p class="mc-heading">Beispiel</p><code>{escape(MOTD_EXAMPLE)}</code>'
+            f'<div class="mc-example" data-motd="{escape(MOTD_EXAMPLE)}"></div></details>')
 
 # Fields that take the full width of a group instead of one grid column
 WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains')
@@ -501,6 +558,8 @@ class WebInterface:
             items = ''.join(f'<li class="head">{escape(line)}</li>' if line.endswith(':')
                             else f'<li>{escape(line)}</li>' for line in field.details.splitlines())
             help_text += f'<details><summary>Hinweise</summary><ul>{items}</ul></details>'
+        if name in MOTD_PREVIEW:
+            help_text += _motd_hints()
 
         if field.kind == 'bool':
             checked = ' checked' if value else ''
