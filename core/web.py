@@ -141,7 +141,7 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-row .empty { color: var(--muted); font-style: italic; }
 .motd-row .k { filter: blur(3px); }
 .motd-row .actions { display: flex; gap: 4px; }
-.motd-row .mc-format.confirm, .icon-remove.confirm { border-color: var(--bad); color: var(--bad); }
+.motd-row .mc-format.confirm { border-color: var(--bad); color: var(--bad); }
 .motd-editor { margin: 2px 0 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 2px;
                background: var(--plate); }
 .motd-editor[hidden] { display: none; }
@@ -164,18 +164,31 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
         background: var(--plate); color: var(--muted); font-size: 18px; cursor: grab; touch-action: none; box-shadow: none; }
 .drag:hover, .drag:focus-visible { border-color: var(--accent); color: var(--accent); transform: none; box-shadow: none; }
 .order-row.dragging .drag { cursor: grabbing; }
-/* Server icons: picture, name, upload and remove */
-.icon-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
-.icon-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
-.icon-row > span:not(.icon-error) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.server-icon { width: 48px; height: 48px; border-radius: 2px; border: 1px solid var(--line); background: var(--plate);
-               image-rendering: pixelated; object-fit: cover; }
-.icon-remove[hidden] { display: none; }
-.icon-upload { display: inline-flex; align-items: center; cursor: pointer; }
+/* Server cards in the MOTD tab: icon, name, icon actions and the MOTD choice */
+.server-card { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--line);
+               border-radius: 2px; background: var(--plate); }
+.server-head { display: grid; grid-template-columns: 56px minmax(0, 1fr) minmax(0, 180px); gap: 12px; align-items: center; }
+.server-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.server-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.icon-frame { width: 56px; height: 56px; border-radius: 2px; border: 1px solid var(--line); background: var(--field);
+              overflow: hidden; }
+.icon-frame:has(.empty) { border-style: dashed; }
+.server-icon { display: block; width: 100%; height: 100%; image-rendering: pixelated; object-fit: cover; }
+.server-icon.empty { visibility: hidden; }
+.icon-actions { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 13px; }
+.icon-upload, .icon-remove { position: relative; padding: 0; border: 0; background: none; color: var(--accent);
+                             font: 13px var(--sans); cursor: pointer; box-shadow: none; }
+.icon-upload:hover, .icon-remove:hover { text-decoration: underline; transform: none; box-shadow: none; }
+.icon-upload:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .icon-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.icon-upload:focus-within { border-color: var(--accent); color: var(--accent); }
-.icon-error { grid-column: 2 / -1; color: var(--bad); font-size: 13px; }
+.icon-remove[hidden] { display: none; }
+.icon-remove.confirm { color: var(--bad); }
+.icon-source { color: var(--muted); }
+.icon-error { color: var(--bad); font-size: 13px; }
 .icon-error:empty { display: none; }
+.server-card .motd-fixed { margin: 0; }
+@media (max-width: 560px) { .server-head { grid-template-columns: 56px minmax(0, 1fr); }
+                            .server-head select { grid-column: 1 / -1; } }
 /* Domain per server: one row per server with a dropdown */
 .domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
@@ -469,10 +482,24 @@ document.querySelectorAll('.order-rows').forEach(function (rows) {
   });
 });
 // server icons: upload or remove at once, without the save button
-document.querySelectorAll('.icon-row').forEach(function (row) {
-  var image = row.querySelector('img');
-  var remove = row.querySelector('.icon-remove');
-  var error = row.querySelector('.icon-error');
+document.querySelectorAll('.server-card').forEach(function (card) {
+  var image = card.querySelector('.server-icon');
+  var remove = card.querySelector('.icon-remove');
+  var source = card.querySelector('.icon-source');
+  var error = card.querySelector('.icon-error');
+  var uploaded = card.dataset.uploaded === '1';
+  // the icon is the uploaded one, or else the one the server shows now
+  image.addEventListener('load', function () {
+    image.classList.remove('empty');
+    source.textContent = uploaded ? 'hochgeladen' : 'aktuell auf dem Server';
+  });
+  image.addEventListener('error', function () {
+    // no picture: an empty frame
+    image.classList.add('empty');
+    source.textContent = 'kein Icon';
+  });
+  if (image.complete) image.dispatchEvent(new Event(image.naturalWidth ? 'load' : 'error'));
+  var reload = function () { image.src = '/icon/' + card.dataset.server + '.png?v=' + Date.now(); };
   var send = function (path, body) {
     error.textContent = '';
     return fetch(path, {method: 'POST', body: body}).then(function (response) {
@@ -482,14 +509,15 @@ document.querySelectorAll('.icon-row').forEach(function (row) {
       });
     }).catch(function (e) { error.textContent = e.message; throw e; });
   };
-  row.querySelector('input[type=file]').addEventListener('change', function (event) {
+  card.querySelector('.icon-upload input').addEventListener('change', function (event) {
     var file = event.target.files[0];
     if (!file) return;
     var body = new FormData();
     body.append('icon', file);
-    send('/icon/' + row.dataset.server, body).then(function (data) {
-      image.src = data.url;
+    send('/icon/' + card.dataset.server, body).then(function () {
+      uploaded = true;
       remove.hidden = false;
+      reload();
     }).catch(function () {});
     event.target.value = '';
   });
@@ -497,14 +525,15 @@ document.querySelectorAll('.icon-row').forEach(function (row) {
     if (!remove.classList.contains('confirm')) {
       remove.classList.add('confirm');
       remove.textContent = 'Wirklich entfernen?';
-      setTimeout(function () { remove.classList.remove('confirm'); remove.textContent = 'Entfernen'; }, 4000);
+      setTimeout(function () { remove.classList.remove('confirm'); remove.textContent = 'Icon entfernen'; }, 4000);
       return;
     }
-    send('/icon/' + row.dataset.server + '/delete').then(function () {
-      image.removeAttribute('src');
+    send('/icon/' + card.dataset.server + '/delete').then(function () {
+      uploaded = false;
       remove.hidden = true;
       remove.classList.remove('confirm');
-      remove.textContent = 'Entfernen';
+      remove.textContent = 'Icon entfernen';
+      reload();
     }).catch(function () {});
   });
 });
@@ -607,9 +636,6 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
 
 WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 
-# Group entry for the server icons, which are files and not a config setting
-ICONS = 'icons'
-
 # One tab per topic: label, intro line and groups of fields from any config section.
 # Fields not listed in any group end up in an extra group of the last tab.
 TABS = {
@@ -631,10 +657,9 @@ TABS = {
         ('Domains', ['address.enabled', 'address.domains']),
         ('Domain pro Server', ['address.fixed']),
     ]),
-    'motd': ('MOTD', 'Text und Icon neben dem Servernamen in der Serverliste.', [
+    'motd': ('MOTD & Icon', 'Text und Bild neben dem Servernamen in der Serverliste.', [
         ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
-        ('Pro Server', ['motd.servers']),
-        ('Server-Icon', [ICONS]),
+        ('Icon & MOTD pro Server', ['motd.servers']),
     ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
@@ -775,13 +800,18 @@ class WebInterface:
         return bool(origin) and urlparse(origin).netloc != request.host
 
     async def get_icon(self, request: web.Request) -> web.StreamResponse:
-        try:
-            path = icon.icon_path(request.match_info['server_id'])
-        except ValueError:
+        """
+        The uploaded icon of a server, or else the icon it shows now.
+        """
+        server_id = request.match_info['server_id']
+        if not icon.SERVER_ID.fullmatch(server_id):
             raise web.HTTPNotFound()
-        if not icon.has_icon(request.match_info['server_id']):
+        if icon.has_icon(server_id):
+            return web.FileResponse(icon.icon_path(server_id), headers={'Cache-Control': 'no-store'})
+        current = await icon.current_icon(server_id)
+        if current is None:
             raise web.HTTPNotFound()
-        return web.FileResponse(path, headers={'Cache-Control': 'no-store'})
+        return web.Response(body=current, content_type='image/png', headers={'Cache-Control': 'no-store'})
 
     async def upload_icon(self, request: web.Request) -> web.Response:
         server_id = request.match_info['server_id']
@@ -912,11 +942,10 @@ class WebInterface:
         listed = {name for _, _, groups in TABS.values() for _, names in groups for name in names}
         leftover = [name for name in cfg.FIELDS_BY_NAME if name not in listed]
         for index, (section, (title, intro, groups)) in enumerate(TABS.items()):
-            groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME or name == ICONS])
-                      for group, names in groups]
+            groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME]) for group, names in groups]
             if leftover and index == len(TABS) - 1:
                 groups.append(('Weitere', leftover))
-            section_fields = [name for _, names in groups for name in names if name != ICONS]
+            section_fields = [name for _, names in groups for name in names]
             accent = f'style="--accent:{ACCENTS[index % len(ACCENTS)]}"'
 
             error_class = ' has-error' if invalid.intersection(section_fields) else ''
@@ -933,9 +962,6 @@ class WebInterface:
             for group, names in groups:
                 html.append(f'<div class="group"><h3>{escape(group)}</h3><div class="grid">')
                 for name in names:
-                    if name == ICONS:
-                        html.append(self._render_icons(servers))
-                        continue
                     html.append(self._render_field(name, cfg.FIELDS_BY_NAME[name], values[name], guild, servers,
                                                    name in invalid, values))
                 html.append('</div></div>')
@@ -967,33 +993,6 @@ class WebInterface:
                 f'{body}<footer><span>Crafty Bot · Port {cfg.config["web.port"]}</span>'
                 f'<span>{escape(cfg.CONFIG_PATH)}</span></footer></div>{SCRIPT}</body></html>')
         return web.Response(text=html, content_type='text/html')
-
-    @staticmethod
-    def _render_icons(servers: list[dict] | None) -> str:
-        """
-        One row per server with its icon and buttons to upload or remove it. Uploads take effect at once.
-        """
-        help_text = ('<div class="help">Jedes Bild wird quadratisch zugeschnitten und als PNG mit 64x64 Pixeln '
-                     'gespeichert, die einzige Größe, die Minecraft anzeigt. Gilt ab dem nächsten Start. '
-                     'Ohne Icon lässt der Bot das Icon des Servers, wie es ist</div>')
-        if servers is None:
-            return ('<div class="field wide"><div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                    'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
-        rows = []
-        for server in servers:
-            server_id = escape(server['server_id'])
-            has = icon.SERVER_ID.fullmatch(server['server_id']) and icon.has_icon(server['server_id'])
-            src = f' src="/icon/{server_id}.png?v={int(time.time())}"' if has else ''
-            rows.append(f'<div class="icon-row" data-server="{server_id}"><img class="server-icon" alt=""{src}>'
-                        f'<span>{escape(server["server_name"])}</span>'
-                        f'<label class="mc-format icon-upload">Hochladen<input type="file" accept="image/*" '
-                        f'aria-label="Icon für {escape(server["server_name"])} hochladen"></label>'
-                        f'<button type="button" class="mc-format icon-remove"{"" if has else " hidden"}>Entfernen'
-                        f'</button><span class="icon-error"></span></div>')
-        if not servers:
-            rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
-        return (f'<div class="field wide"><label class="name">Icon pro Server</label>'
-                f'<div class="icon-rows">{"".join(rows)}</div>{help_text}</div>')
 
     @staticmethod
     def _render_field(name: str, field: cfg.Field, value, guild: discord.Guild | None,
@@ -1116,11 +1115,22 @@ class WebInterface:
                 choice = value.get(server['server_id'])
                 mode = 'random' if choice is None else 'keep' if choice == cfg.KEEP_MOTD else 'fixed'
                 text = choice if mode == 'fixed' else ''
-                options = [('random', 'Zufällig aus der Liste'), ('fixed', 'Feste MOTD'), ('keep', 'Nicht ändern')]
+                options = [('random', 'Zufällig'), ('fixed', 'Feste MOTD'), ('keep', 'Nicht ändern')]
                 html_options = ''.join(f'<option value="{option}"{" selected" if option == mode else ""}>'
                                        f'{option_text}</option>' for option, option_text in options)
-                rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>'
-                            f'<select class="motd-server" name="{key}">{html_options}</select></label>'
+                server_id = escape(server['server_id'])
+                uploaded = bool(icon.SERVER_ID.fullmatch(server['server_id'])) and icon.has_icon(server['server_id'])
+                rows.append(f'<div class="server-card" data-server="{server_id}" data-uploaded="{int(uploaded)}">'
+                            f'<div class="server-head"><span class="icon-frame"><img class="server-icon" alt="" '
+                            f'src="/icon/{server_id}.png?v={int(time.time())}"></span><div class="server-title">'
+                            f'<b>{escape(server["server_name"])}</b><span class="icon-actions">'
+                            f'<label class="icon-upload">Icon ändern<input type="file" accept="image/*" '
+                            f'aria-label="Icon für {escape(server["server_name"])} hochladen"></label>'
+                            f'<button type="button" class="icon-remove"{"" if uploaded else " hidden"}>'
+                            f'Icon entfernen</button><span class="icon-source"></span></span></div>'
+                            f'<select class="motd-server" name="{key}" aria-label="MOTD für '
+                            f'{escape(server["server_name"])}">{html_options}</select></div>'
+                            f'<span class="icon-error"></span>'
                             f'<div class="motd-fixed" data-for="{key}">'
                             f'<div class="motd-row single"><div class="lines"></div><div class="actions">'
                             f'<button type="button" class="mc-format motd-toggle">Bearbeiten</button></div></div>'
@@ -1128,7 +1138,7 @@ class WebInterface:
                             f'<input type="text" id="{key}.text" name="{key}.text" value="{escape(text)}" '
                             f'autocomplete="off" aria-label="Feste MOTD für {escape(server["server_name"])}">'
                             f'<div class="motd-editor-actions"><button type="button" class="mc-format motd-done">'
-                            f'Fertig</button></div></div></div>')
+                            f'Fertig</button></div></div></div></div>')
             if not servers:
                 rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
