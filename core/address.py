@@ -10,7 +10,7 @@ uses that port to count the players. Changing the port in Crafty needs the API t
 import asyncio
 import time
 
-from core.config import get
+from core.config import KEEP_PORT, get
 from core.constants import API_ENDPOINT
 from core.motd import apply_random_motd, is_active as motd_active
 from core.network import HttpMethod, is_response_successful, send_request
@@ -20,7 +20,8 @@ from core.server import get_server_stats, get_servers
 ADDRESS_ENABLED: bool = get('address.enabled')
 DOMAINS: list[tuple[str, int]] = [(entry.rsplit(':', 1)[0], int(entry.rsplit(':', 1)[1]))
                                   for entry in get('address.domains')]
-ADDRESS_EXCLUDED: list[str] = get('address.excluded_servers')
+# server ID -> domain the server always gets, or KEEP_PORT
+ADDRESS_FIXED: dict[str, str] = get('address.fixed')
 
 # a port given to a starting server counts as used for this long, until the server shows up as running
 RESERVE_TIME = 300
@@ -31,7 +32,21 @@ _lock = asyncio.Lock()
 
 
 def is_active(server_id: str) -> bool:
-    return ADDRESS_ENABLED and bool(DOMAINS) and server_id not in ADDRESS_EXCLUDED
+    return ADDRESS_ENABLED and bool(DOMAINS) and ADDRESS_FIXED.get(server_id) != KEEP_PORT
+
+
+def _candidates(server_id: str) -> list[tuple[str, int]]:
+    """
+    The domains the server may get, in order: only its fixed domain, or all domains not fixed to other servers.
+    """
+    fixed = ADDRESS_FIXED.get(server_id)
+    if fixed and fixed != KEEP_PORT:
+        own = [(domain, port) for domain, port in DOMAINS if domain == fixed]
+        if own:
+            return own
+        # the fixed domain was removed from the list: fall back to a free one
+    taken = {choice for other, choice in ADDRESS_FIXED.items() if other != server_id}
+    return [(domain, port) for domain, port in DOMAINS if domain not in taken]
 
 
 def domain_for_port(port) -> str | None:
@@ -79,7 +94,7 @@ async def has_free_domain(server_id: str) -> bool | None:
     used = await _used_ports(server_id)
     if used is None:
         return None
-    return any(port not in used for _, port in DOMAINS)
+    return any(port not in used for _, port in _candidates(server_id))
 
 
 async def _set_crafty_port(server_id: str, port: int) -> bool:
@@ -111,9 +126,12 @@ async def prepare_start(server_id: str) -> tuple[str | None, str | None]:
         used = await _used_ports(server_id)
         if used is None:
             return None, 'failed to check which domains are free'
-        free = [(domain, port) for domain, port in DOMAINS if port not in used]
+        candidates = _candidates(server_id)
+        free = [(domain, port) for domain, port in candidates if port not in used]
         if not free:
-            return None, f'all {len(DOMAINS)} domains are in use, stop a server first'
+            if len(candidates) == 1 and ADDRESS_FIXED.get(server_id) == candidates[0][0]:
+                return None, f'{candidates[0][0]} is used by another server, stop it first'
+            return None, 'all domains are in use, stop a server first'
         domain, port = free[0]
 
         read = await read_properties(server_id)

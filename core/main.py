@@ -235,7 +235,7 @@ async def start(ctx, server_id):
     free = await has_free_domain(server_id)
     if not free:
         await ctx.reply('failed to check which domains are free' if free is None
-                        else 'All domains are in use, stop a server first', ephemeral=True)
+                        else 'No free domain for this server, stop a server first', ephemeral=True)
         return
 
     backup = needs_start_backup(server_id)

@@ -19,12 +19,15 @@ CONFIG_PATH = os.environ.get('CONFIG_PATH', os.path.join(ROOT_DIR, 'data', 'conf
 
 TRUE_VALUES = ('1', 'true', 'yes', 'on')
 
+# address.fixed value for servers whose port the bot does not change
+KEEP_PORT = 'keep'
+
 
 @dataclass(frozen=True)
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role, servers, list, lines, domains, time, weekday or timezone
+    # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, time, weekday or timezone
     kind: str
     default: object
     env: str | None
@@ -101,8 +104,9 @@ FIELDS = [
                   '_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de\n'
                   'Im Router:\n'
                   'Jeden Port der Liste (TCP) an den Rechner mit Crafty weiterleiten'),
-    Field('address', 'excluded_servers', 'servers', [], None, 'Server mit festem Port',
-          'Diese Server behalten immer ihren Port. Solange sie laufen, gilt ihr Port als belegt'),
+    Field('address', 'fixed', 'server_domains', {}, None, 'Domain pro Server',
+          'Automatisch = erste freie Domain. Eine feste Domain gehört immer diesem Server und wird keinem anderen '
+          'gegeben. „Port nicht ändern“ = der Bot lässt den Port des Servers, wie er ist'),
     Field('backup', 'enabled', 'bool', False, None, 'Automatische Backups aktiv',
           'Der Bot legt in Crafty die Backups „Bot Start“, „Bot Täglich“ und „Bot Wöchentlich“ an. '
           'Gesichert wird nur, wenn der Server seit dem letzten Backup an war'),
@@ -240,6 +244,14 @@ def parse_value(field: Field, raw):
             ports.add(int(match[2]))
             domains.append(f'{match[1].lower()}:{int(match[2])}')
         return domains
+    if field.kind == 'server_domains':
+        # server ID -> domain or KEEP_PORT; servers without an entry get the first free domain
+        if not raw:
+            return {}
+        if not isinstance(raw, dict):
+            raise ValueError(f'{field.label}: expected server ID: domain')
+        return {str(server_id).strip(): str(choice).strip().lower() for server_id, choice in raw.items()
+                if str(server_id).strip() and str(choice).strip() and str(choice).strip().lower() != 'auto'}
     if field.kind == 'servers':
         if raw is None:
             return []
@@ -282,6 +294,11 @@ def load() -> dict:
                 print(f'Invalid value for {name} in {CONFIG_PATH}, using default')
         missing.append(name)
         values[name] = _from_env(field)
+
+    # Older configs list servers with a fixed port instead of a domain per server
+    old_fixed = (file_data.get('address') or {}).get('excluded_servers')
+    if 'address.fixed' in missing and old_fixed:
+        values['address.fixed'] = {str(server_id): KEEP_PORT for server_id in old_fixed}
 
     # Older configs have no switches: switch on what already has an ID
     for toggle, target in TOGGLES.items():

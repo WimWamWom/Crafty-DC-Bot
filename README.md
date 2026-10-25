@@ -118,6 +118,8 @@ record (e.g. `_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de`). A se
 shows the domain instead of IP:port in its start embed. With automatic domains on, the bot sets the port of a server
 to the port of the first domain no other running server uses before every `/start`, in `server.properties` and in
 Crafty. When all domains are in use, `/start` is refused, so the list also limits how many servers run at once.
+Under "Domain pro Server" you can give a server a fixed domain (e.g. always `mc3`), which no other server gets,
+or tell the bot to leave its port alone. All other servers get the first free domain.
 
 ## License
 

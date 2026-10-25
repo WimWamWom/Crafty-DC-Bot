@@ -137,6 +137,11 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-entry .title { color: #fff; }
 .motd-entry .line { color: #aaa; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.35em; }
 .motd-entry .k { filter: blur(3px); }
+/* Domain per server: one row per server with a dropdown */
+.domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
+.domain-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) { .domain-row { grid-template-columns: 1fr; gap: 4px; } }
 /* MOTD code legend: every color and format code shown in its own look */
 .mc-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-top: 8px; }
 .mc-code { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 2px;
@@ -295,7 +300,7 @@ TABS = {
     ]),
     'address': ('Domains', 'Welche Domain ein Server bekommt und im Start-Embed zeigt.', [
         ('Domains', ['address.enabled', 'address.domains']),
-        ('Ausnahmen', ['address.excluded_servers']),
+        ('Domain pro Server', ['address.fixed']),
     ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
@@ -357,7 +362,7 @@ def _motd_hints() -> str:
             f'<div class="mc-example" data-motd="{escape(MOTD_EXAMPLE)}"></div></details>')
 
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains')
+WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains', 'server_domains')
 
 
 class WebInterface:
@@ -425,6 +430,11 @@ class WebInterface:
             elif field.kind == 'servers':
                 if f'{name}.present' in form:
                     values[name] = cfg.parse_value(field, form.getall(name, []))
+            elif field.kind == 'server_domains':
+                if f'{name}.present' in form:
+                    prefix = f'{name}.'
+                    values[name] = cfg.parse_value(field, {key[len(prefix):]: form[key] for key in form
+                                                           if key.startswith(prefix) and key != f'{name}.present'})
             elif field.kind == 'secret':
                 if f'{name}.clear' in form:
                     values[name] = ''
@@ -509,7 +519,7 @@ class WebInterface:
                 html.append(f'<div class="group"><h3>{escape(group)}</h3><div class="grid">')
                 for name in names:
                     html.append(self._render_field(name, cfg.FIELDS_BY_NAME[name], values[name], guild, servers,
-                                                   name in invalid))
+                                                   name in invalid, values))
                 html.append('</div></div>')
             html.append('</div></section>')
             panels.append(''.join(html))
@@ -542,7 +552,7 @@ class WebInterface:
 
     @staticmethod
     def _render_field(name: str, field: cfg.Field, value, guild: discord.Guild | None,
-                      servers: list[dict] | None, invalid: bool = False) -> str:
+                      servers: list[dict] | None, invalid: bool = False, values: dict | None = None) -> str:
         classes = ['field']
         if field.kind in WIDE_KINDS or field.details:
             classes.append('wide')
@@ -604,6 +614,33 @@ class WebInterface:
         if field.kind == 'time':
             return (f'{open_tag}{label}<input type="time" id="{name}" name="{name}" '
                     f'value="{escape(value)}">{help_text}</div>')
+
+        if field.kind == 'server_domains':
+            marker = f'<input type="hidden" name="{name}.present" value="1">'
+            if servers is None:
+                # keep the current choices if the server list is not available
+                hidden = ''.join(f'<input type="hidden" name="{name}.{escape(server_id)}" value="{escape(choice)}">'
+                                 for server_id, choice in value.items())
+                return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
+                        f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
+                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+            domains = [entry.rsplit(':', 1)[0] for entry in (values or cfg.config)['address.domains']]
+            rows = []
+            for server in servers:
+                server_id = server['server_id']
+                choice = value.get(server_id, 'auto')
+                options = [('auto', 'Automatisch'), (cfg.KEEP_PORT, 'Port nicht ändern')]
+                options += [(domain, f'Immer {domain}') for domain in domains]
+                if choice not in [option for option, _ in options]:
+                    options.append((choice, f'Immer {choice} (nicht mehr in der Liste)'))
+                html_options = ''.join(f'<option value="{escape(option)}"{" selected" if option == choice else ""}>'
+                                       f'{escape(text)}</option>' for option, text in options)
+                rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>'
+                            f'<select name="{name}.{escape(server_id)}">{html_options}</select></label>')
+            if not servers:
+                rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
+            return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
+                    f'<div class="domain-rows">{"".join(rows)}</div>{help_text}</div>')
 
         if field.kind == 'servers':
             marker = f'<input type="hidden" name="{name}.present" value="1">'
