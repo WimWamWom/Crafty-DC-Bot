@@ -14,6 +14,7 @@ import discord
 from aiohttp import web
 
 from core import config as cfg
+from core.constants import LOGO_URL
 from core.server import get_servers
 
 STYLE = """
@@ -27,7 +28,8 @@ STYLE = """
 body { margin: 0; background: var(--bg); color: var(--text);
        font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
-h1 { font-size: 24px; margin: 0 0 4px; }
+h1 { font-size: 24px; margin: 0 0 4px; display: flex; align-items: center; gap: 12px; }
+h1 img { width: 40px; height: 40px; border-radius: 8px; }
 .sub { color: var(--muted); margin: 0 0 24px; }
 section { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
           padding: 16px 20px; margin-bottom: 16px; }
@@ -195,8 +197,8 @@ class WebInterface:
     def _page(body: str, head: str = '') -> web.Response:
         html = (f'<!doctype html><html lang="de"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-                f'<title>Crafty Bot</title><style>{STYLE}</style>{head}</head><body><main>'
-                f'<h1>Crafty Bot</h1><p class="sub">Einstellungen</p>{body}</main>{SCRIPT}</body></html>')
+                f'<title>Crafty Bot</title><link rel="icon" href="{LOGO_URL}"><style>{STYLE}</style>{head}</head><body><main>'
+                f'<h1><img src="{LOGO_URL}" alt="">Crafty Bot</h1><p class="sub">Einstellungen</p>{body}</main>{SCRIPT}</body></html>')
         return web.Response(text=html, content_type='text/html')
 
     @staticmethod

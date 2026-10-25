@@ -9,6 +9,7 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 - Start, stop and restart servers (stop and restart only when nobody is online)
 - Self-updating status board with all servers in one channel
 - Auto stop for empty servers
+- Automatic backups in Crafty (before start, daily, weekly), only when the server was played
 - Commands limited to one channel, server control limited to one role
 - Choose which Crafty servers the bot shows
 - Web interface on port 4883 for all settings
@@ -33,7 +34,7 @@ The bot owner can use all commands in every channel, regardless of the channel a
 ### Crafty API token
 
 Create a user for the bot in Crafty (gear icon → add user), then open the user, go to "API Key" and create a token
-with the permissions `COMMANDS`, `TERMINAL` and `PLAYERS`.
+with the permissions `COMMANDS`, `TERMINAL`, `PLAYERS` and `BACKUP` (for automatic backups).
 
 ### Discord bot
 
@@ -96,6 +97,9 @@ If a required setting is missing, only the web interface starts.
 | `status.update_interval` | `STATUS_UPDATE_INTERVAL` | Status board update interval in seconds (default 60) |
 | `web.port` | `WEB_PORT` | Port of the web interface (default 4883) |
 | `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name) |
+
+The backup settings (`backup.*`: on/off, how many backups to keep, time, excluded servers and folders) are
+only available in `config.yaml` and the web interface.
 
 ## License
 

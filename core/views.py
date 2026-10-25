@@ -4,7 +4,7 @@ This module contains the interactive Discord views (dropdowns) of the bot.
 
 import discord
 
-from core.embeds import server_stats_embed
+from core.embeds import new_embed, server_stats_embed
 from core.server import get_server_stats
 
 # Discord allows at most 25 options in a dropdown
@@ -31,7 +31,7 @@ class ServerSelect(discord.ui.Select):
         await interaction.response.defer()
         stats = await get_server_stats(server_id)
         if stats is None:
-            embed = discord.Embed(title=self.names[server_id], description='failed to get server stats',
+            embed = new_embed(title=self.names[server_id], description='failed to get server stats',
                                   color=discord.Color.light_grey())
         else:
             embed = server_stats_embed(self.names[server_id], stats)

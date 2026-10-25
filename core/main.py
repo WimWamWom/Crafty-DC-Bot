@@ -20,7 +20,7 @@ load_dotenv()
 from core.config import get
 from core.helper import check_config, check_server_id, get_server_list, get_cached_servers
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
-from core.embeds import status_embed
+from core.embeds import new_embed, status_embed
 from core.status import StatusBoard
 from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
@@ -146,7 +146,7 @@ async def on_ready():
 @bot.hybrid_command(name='help', description='list all commands')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
 async def help_command(ctx):
-    embed = discord.Embed(title='Commands', color=discord.Color.blurple())
+    embed = new_embed(title='Commands', color=discord.Color.blurple())
     for command in sorted(bot.commands, key=lambda c: c.name):
         embed.add_field(name=f'/{command.name}', value=command.description or '-', inline=False)
     await ctx.reply(embed=embed, ephemeral=True)
