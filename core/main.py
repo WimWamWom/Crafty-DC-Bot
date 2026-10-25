@@ -11,7 +11,6 @@ import traceback
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from discord.ext.commands import is_owner
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -19,14 +18,17 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
-from core.helper import check_config, check_server_id, get_server_list, get_cached_servers, get_server_name
+from core.helper import check_config, check_server_id, get_server_list, get_cached_servers
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
-from core.embeds import server_list_embed, server_stats_embed
+from core.embeds import new_embed, status_embed
 from core.status import StatusBoard
+from core.sessions import STARTING, SessionTracker
 from core.checks import command_channel_check, control_role
-from core.custom_help_command import CustomHelpCommand
+from core.views import ServerStatsView
 from core.web import WebInterface
-from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, GUILD_ID, STATUS_CHANNEL_ID,
+from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
+from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
+                            SESSION_ENABLED, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
 
 SERVER_URL = get('crafty.url')
@@ -45,6 +47,14 @@ class CraftyBot(commands.Bot):
             print(f'status embed enabled in channel {STATUS_CHANNEL_ID}')
             update_status.start()
 
+        if sessions is not None:
+            print('server start embeds enabled')
+            update_sessions.start()
+
+        if BACKUP_ENABLED:
+            print('automatic backups enabled')
+            backup_loop.start()
+
         # Synchronize slash commands on startup
         try:
             synced = await self.tree.sync(guild=discord.Object(id=GUILD_ID))
@@ -55,13 +65,29 @@ class CraftyBot(commands.Bot):
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = CraftyBot(command_prefix='>', intents=intents, help_command=CustomHelpCommand())
+bot = CraftyBot(command_prefix='>', intents=intents, help_command=None)
 bot.add_check(command_channel_check)
 
 status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
+backup_scheduler = BackupScheduler()
 
 # track consecutive zero-player checks per server
 consecutive_zero = {}
+
+
+def auto_stop_eta(server_id: str) -> float | None:
+    """
+    Time (epoch seconds) when auto stop will stop the server if nobody joins, or None if auto stop is off.
+    """
+    next_check = auto_stop.next_iteration
+    if not AUTO_STOP_ENABLED or next_check is None:
+        return None
+    # the server is stopped on the second check in a row without players
+    remaining_checks = 1 if consecutive_zero.get(server_id, 0) >= 1 else 2
+    return next_check.timestamp() + (remaining_checks - 1) * AUTO_STOP_SLEEP_TIME
+
+
+sessions = SessionTracker(bot, SESSION_CHANNEL_ID, auto_stop_eta) if SESSION_ENABLED else None
 
 
 # stop servers after AUTO_STOP_SLEEP_TIME to 2x AUTO_STOP_SLEEP_TIME of inactivity (no players online)
@@ -92,8 +118,12 @@ async def auto_stop():
                 consecutive_zero[server_id] = consecutive_zero.get(server_id, 0) + 1
                 # require two consecutive checks with 0 players before stopping
                 if consecutive_zero[server_id] >= 2:
+                    if sessions is not None:
+                        sessions.set_stop_reason(server_id, 'auto stop, nobody was online')
                     if await stop_server(server_id):
                         print(f'auto stop: stopped {server["server_name"]}')
+                    elif sessions is not None:
+                        sessions.set_stop_reason(server_id, None)
                     consecutive_zero.pop(server_id, None)
             else:
                 # players online -> reset counter
@@ -115,8 +145,30 @@ async def update_status():
         traceback.print_exc()
 
 
+@tasks.loop(seconds=30)
+async def update_sessions():
+    """
+    Update the server start embeds.
+    """
+    try:
+        await sessions.tick()
+    except Exception:
+        # keep the loop alive on unexpected errors (e.g. missing permissions)
+        traceback.print_exc()
+
+
+@tasks.loop(seconds=60)
+async def backup_loop():
+    """
+    Record which servers are online and run the scheduled backups.
+    """
+    await backup_scheduler.tick()
+
+
 @auto_stop.before_loop
 @update_status.before_loop
+@update_sessions.before_loop
+@backup_loop.before_loop
 async def wait_until_ready():
     await bot.wait_until_ready()
 
@@ -129,45 +181,37 @@ async def on_ready():
     print("GUILD ID: {}".format(GUILD_ID))
 
 
-@bot.hybrid_command(name='sync', description='Sync slash commands')
+@bot.hybrid_command(name='help', description='list all commands')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@is_owner()
-async def sync(ctx) -> None:
-    print('sync')
-    synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    await ctx.reply("{} commands synced".format(len(synced)), ephemeral=True)
+async def help_command(ctx):
+    embed = new_embed(title='Commands', color=discord.Color.blurple())
+    for command in sorted(bot.commands, key=lambda c: c.name):
+        embed.add_field(name=f'/{command.name}', value=command.description or '-', inline=False)
+    await ctx.reply(embed=embed, ephemeral=True)
 
 
-@bot.hybrid_command(name='list', description='get server list')
-@app_commands.guilds(discord.Object(id=GUILD_ID))  # get the list of servers
-async def get_list(ctx):
-    print('servers')
+# show the status of all servers with a dropdown to get the stats of one server
+@bot.hybrid_command(name='stats', description='get server stats')
+@app_commands.guilds(discord.Object(id=GUILD_ID))
+async def stats(ctx):
+    print('stats')
     await ctx.defer(ephemeral=True)
     servers = await get_cached_servers()
     if servers is None:
         await ctx.reply('failed to get server list', ephemeral=True)
         return
-
-    await ctx.reply(embed=server_list_embed(servers), ephemeral=True)
-
-
-# get statistics of a server
-@bot.hybrid_command(name='stats', description='get server stats')
-@app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
-async def stats(ctx, server_id):
-    print('stats')
-
-    if not await check_server_id(server_id, ctx):
+    if not servers:
+        await ctx.reply('No servers found', ephemeral=True)
         return
 
-    await ctx.defer(ephemeral=True)
-    data = await get_server_stats(server_id)
-    if data is None:
-        await ctx.reply('failed to get server stats', ephemeral=True)
-        return
+    server_stats = await asyncio.gather(*(get_server_stats(server['server_id']) for server in servers))
+    embed = status_embed(list(zip(servers, server_stats)))
+    # the footer marks the status board message, so this one must not have it
+    embed.remove_footer()
+    embed.description = 'Choose a server below to see its details'
 
-    await ctx.reply(embed=server_stats_embed(await get_server_name(server_id), data), ephemeral=True)
+    view = ServerStatsView(servers, ctx.author.id)
+    view.message = await ctx.reply(embed=embed, view=view, ephemeral=True)
 
 
 # start a server
@@ -191,9 +235,35 @@ async def start(ctx, server_id):
         await ctx.reply('Server already running', ephemeral=True)
         return
 
+    backup = needs_start_backup(server_id)
+    session = None
+    if sessions is not None:
+        server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),
+                      {'server_id': server_id, 'server_name': server_id})
+        # the embed is the public answer, as a reply to the message for > commands
+        session = await sessions.begin(server, ctx.author.mention, ctx.channel, backup,
+                                       reference=ctx.message if ctx.interaction is None else None)
+        if ctx.interaction is not None:
+            link = f': {session.message.jump_url}' if session.message else ''
+            await ctx.reply(f'Starting {server["server_name"]}{link}', ephemeral=True)
+
+    if backup:
+        if session is None:
+            await ctx.reply('Creating a backup before starting, this can take a moment...', ephemeral=True)
+        backup_ok = await backup_before_start(server_id)
+        if session is not None:
+            await sessions.update(session, phase=STARTING,
+                                  note=None if backup_ok else 'Backup failed, check the backups in Crafty')
+        elif not backup_ok:
+            await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
+
     if await server_action(server_id, 'start_server'):
-        await ctx.reply('Server started', ephemeral=True)
+        mark_started(server_id)
+        if session is None:
+            await ctx.reply('Server started', ephemeral=True)
     else:
+        if session is not None:
+            await sessions.fail(session, 'failed to start')
         await ctx.reply('failed to start server', ephemeral=True)
 
 
@@ -234,9 +304,13 @@ async def stop(ctx, server_id):
     if not await check_can_stop(ctx, server_id, 'stop'):
         return
 
+    if sessions is not None:
+        sessions.set_stop_reason(server_id, f'/stop by {ctx.author.mention}')
     if await stop_server(server_id):
         await ctx.reply('Server stopped', ephemeral=True)
     else:
+        if sessions is not None:
+            sessions.set_stop_reason(server_id, None)
         await ctx.reply('failed to stop server', ephemeral=True)
 
 
@@ -255,6 +329,8 @@ async def restart(ctx, server_id):
     if not await check_can_stop(ctx, server_id, 'restart'):
         return
 
+    if sessions is not None:
+        sessions.mark_restart(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
     else:
@@ -271,10 +347,10 @@ async def on_command_error(ctx, error):
         error = error.original
 
     if isinstance(error, commands.CommandNotFound):
-        await ctx.send('Command not found. Use `>help` to get a list of available commands.')
+        await ctx.send('Command not found. Use `/help` to get a list of available commands.')
         print(error)
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send('Missing required argument. Use `>help` to get a list of available commands.')
+        await ctx.send('Missing required argument. Use `/help` to get a list of available commands.')
         print(error)
     elif isinstance(error, commands.NotOwner):
         await ctx.reply('Only the bot owner can use this command', ephemeral=True)

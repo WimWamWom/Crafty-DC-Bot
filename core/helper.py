@@ -90,16 +90,6 @@ async def get_cached_servers() -> list[dict] | None:
     return servers
 
 
-async def get_server_name(server_id: str) -> str:
-    """
-    Get the name of the server with the specified ID, or the ID itself if it is unknown.
-    """
-    for server in await get_cached_servers() or []:
-        if server['server_id'] == server_id:
-            return server['server_name']
-    return server_id
-
-
 async def get_server_list(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     servers = await get_cached_servers()
     if servers is None:

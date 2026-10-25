@@ -4,6 +4,7 @@ This module builds the Discord embeds for the server information.
 
 import discord
 
+from core.constants import LOGO_URL
 from core.server import parse_players
 
 COLOR_ONLINE = discord.Color.green()
@@ -17,7 +18,16 @@ STATUS_FOOTER = 'Crafty server status'
 MAX_FIELD_LENGTH = 1024
 
 
-def _player_text(stats: dict) -> str:
+def new_embed(**kwargs) -> discord.Embed:
+    """
+    Create an embed with the bot logo in the top left corner.
+    """
+    embed = discord.Embed(**kwargs)
+    embed.set_author(name='Crafty Bot', icon_url=LOGO_URL)
+    return embed
+
+
+def player_text(stats: dict) -> str:
     """
     Format the online player count and names, e.g. "2/20: Steve, Alex".
     """
@@ -31,29 +41,12 @@ def _player_text(stats: dict) -> str:
     return text
 
 
-def server_list_embed(servers: list[dict]) -> discord.Embed:
-    """
-    Build an embed with all servers and their ID, IP and port.
-    """
-    embed = discord.Embed(title='Servers', color=discord.Color.blurple())
-    for server in servers[:25]:
-        embed.add_field(
-            name=server.get('server_name', '-'),
-            value=(f"ID: `{server.get('server_id', '-')}`\n"
-                   f"Address: `{server.get('server_ip', 'unknown')}:{server.get('server_port', 'unknown')}`"),
-            inline=False,
-        )
-    if not servers:
-        embed.description = 'No servers found'
-    return embed
-
-
 def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
     """
     Build an embed with the stats of one server.
     """
     running = bool(stats.get('running'))
-    embed = discord.Embed(
+    embed = new_embed(
         title=server_name,
         description='🟢 Online' if running else '🔴 Offline',
         color=COLOR_ONLINE if running else COLOR_OFFLINE,
@@ -61,7 +54,7 @@ def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
     embed.add_field(name='World', value=stats.get('world_name') or '-')
     if running:
         embed.add_field(name='Version', value=stats.get('version') or '-')
-        embed.add_field(name='Players', value=_player_text(stats), inline=False)
+        embed.add_field(name='Players', value=player_text(stats), inline=False)
         embed.add_field(name='CPU', value=f"{stats.get('cpu', '?')}%")
         mem = stats.get('mem', '?')
         if isinstance(mem, (int, float)):
@@ -77,7 +70,7 @@ def status_embed(entries: list[tuple[dict, dict | None]]) -> discord.Embed:
     Args:
         entries: List of (server, stats) tuples. stats is None if it could not be fetched.
     """
-    embed = discord.Embed(title='Server status', color=COLOR_OFFLINE)
+    embed = new_embed(title='Server status', color=COLOR_OFFLINE)
     any_online = False
     for server, stats in entries[:25]:
         name = server.get('server_name', '-')
@@ -85,7 +78,7 @@ def status_embed(entries: list[tuple[dict, dict | None]]) -> discord.Embed:
             value = '⚪ Unknown'
         elif stats.get('running'):
             any_online = True
-            value = f"🟢 Online · {stats.get('version') or '-'}\nPlayers: {_player_text(stats)}"
+            value = f"🟢 Online · {stats.get('version') or '-'}\nPlayers: {player_text(stats)}"
         else:
             value = '🔴 Offline'
         embed.add_field(name=name, value=value[:MAX_FIELD_LENGTH], inline=False)

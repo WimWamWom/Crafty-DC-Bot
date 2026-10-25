@@ -8,7 +8,9 @@ On the first start, the config file is created from the environment variables.
 
 import json
 import os
+import re
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -22,13 +24,15 @@ TRUE_VALUES = ('1', 'true', 'yes', 'on')
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role or servers
+    # str, secret, int, bool, channel, role, servers, list, time, weekday or timezone
     kind: str
     default: object
     env: str | None
     label: str
     help: str
     required: bool = False
+    # longer hints shown in a collapsible box in the web interface, one per line
+    details: str = ''
 
 
 SECTIONS = {
@@ -37,6 +41,8 @@ SECTIONS = {
     'servers': 'Server',
     'auto_stop': 'Auto-Stop',
     'status': 'Status-Embed',
+    'session': 'Server-Embeds',
+    'backup': 'Backups',
     'web': 'Webinterface',
 }
 
@@ -49,20 +55,85 @@ FIELDS = [
           'Token aus dem Discord Developer Portal', required=True),
     Field('discord', 'guild_id', 'int', 0, 'GUILD_ID', 'Discord-Server-ID',
           'ID deines Discord-Servers (Guild). Ohne sie gibt es keine Slash-Commands'),
+    Field('discord', 'command_channel_enabled', 'bool', False, 'COMMAND_CHANNEL_ENABLED',
+          'Befehle nur in einem Kanal', 'Aus = der Bot reagiert in allen Kanälen'),
     Field('discord', 'command_channel_id', 'channel', 0, 'COMMAND_CHANNEL_ID', 'Befehlskanal',
-          'Nur in diesem Kanal reagiert der Bot auf Befehle. 0 = alle Kanäle'),
+          'Nur in diesem Kanal reagiert der Bot auf Befehle'),
+    Field('discord', 'control_role_enabled', 'bool', False, 'CONTROL_ROLE_ENABLED',
+          'Steuern nur mit Rolle', 'Aus = jeder darf Server starten, stoppen und neu starten'),
     Field('discord', 'control_role_id', 'role', 0, 'CONTROL_ROLE_ID', 'Steuer-Rolle',
-          'Nur diese Rolle darf Server starten, stoppen und neu starten. 0 = alle'),
+          'Nur diese Rolle darf Server starten, stoppen und neu starten'),
     Field('servers', 'allowed', 'servers', [], 'ALLOWED_SERVERS', 'Verfügbare Server',
           'Server-IDs, die im Bot auswählbar sind (auch für Status und Auto-Stop). Leer = alle'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',
           'Leere Server automatisch stoppen'),
     Field('auto_stop', 'interval', 'int', 1800, 'AUTO_STOP_SLEEP_TIME', 'Prüfintervall (Sekunden)',
           'Ein Server wird nach zwei Prüfungen ohne Spieler in Folge gestoppt'),
+    Field('status', 'enabled', 'bool', False, 'STATUS_ENABLED', 'Statusübersicht aktiv',
+          'Statusübersicht im Status-Kanal anzeigen'),
     Field('status', 'channel_id', 'channel', 0, 'STATUS_CHANNEL_ID', 'Status-Kanal',
-          'Kanal mit der Statusübersicht, die sich selbst aktualisiert. 0 = aus'),
+          'Kanal mit der Statusübersicht, die sich selbst aktualisiert'),
     Field('status', 'update_interval', 'int', 60, 'STATUS_UPDATE_INTERVAL', 'Aktualisierung (Sekunden)',
           'Wie oft die Statusübersicht aktualisiert wird'),
+    Field('session', 'enabled', 'bool', True, 'SESSION_ENABLED', 'Embed bei jedem Serverstart',
+          'Bei /start antwortet der Bot mit einem Embed, das „Backup wird erstellt“, dann den laufenden Server '
+          'mit Spielern und der Zeit bis zum Auto-Stop und am Ende Grund und Laufzeit des Stopps zeigt. '
+          'Es bleibt danach im Kanal stehen und ersetzt die Start/Stop-Webhooks von Crafty'),
+    Field('session', 'channel_id', 'channel', 0, 'SESSION_CHANNEL_ID', 'Kanal für Server-Embeds',
+          'Alle Embeds erscheinen hier, auch für Server, die außerhalb des Bots gestartet wurden (z. B. in Crafty). '
+          'Leer = im Kanal von /start, Starts außerhalb des Bots im Befehlskanal'),
+    Field('backup', 'enabled', 'bool', False, None, 'Automatische Backups aktiv',
+          'Der Bot legt bei jedem verfügbaren Server die Backup-Konfigurationen „Bot Start“, „Bot Täglich“ '
+          'und „Bot Wöchentlich“ in Crafty an und hält sie aktuell. Backups werden nur erstellt, '
+          'wenn der Server seit dem letzten Backup dieser Art online war'),
+    Field('backup', 'excluded_servers', 'servers', [], None, 'Server ohne Backups',
+          'Für diese Server erstellt der Bot keine Backups. Ihre bisherigen Bot-Backups bleiben, '
+          'außer die Option darunter ist an'),
+    Field('backup', 'delete_excluded', 'bool', False, None, 'Bot-Backups dieser Server löschen',
+          'Löscht alle Backups von „Bot Start“, „Bot Täglich“ und „Bot Wöchentlich“ der Server oben. '
+          'Die Welt selbst und Backups, die du in Crafty angelegt hast, bleiben. Kann nicht rückgängig gemacht werden'),
+    Field('backup', 'delete_after_days', 'int', 0, None, 'Bot-Backups inaktiver Server löschen nach (Tagen)',
+          'War ein Server so viele Tage nicht online, löscht der Bot alle seine Bot-Backups, '
+          'weil nur noch die aktuelle Welt gebraucht wird. Beim nächsten Start gibt es wieder ein Backup. '
+          'Die Welt selbst und Backups, die du in Crafty angelegt hast, bleiben. 0 = aus'),
+    Field('backup', 'on_start', 'int', 5, None, 'Backups vor dem Start (Anzahl)',
+          'Vor /start wird ein Backup erstellt, der Server startet erst danach. '
+          'So viele werden behalten, ältere löscht Crafty. 0 = aus'),
+    Field('backup', 'daily', 'int', 7, None, 'Tägliche Backups (Anzahl)',
+          'So viele tägliche Backups werden behalten. 0 = aus'),
+    Field('backup', 'weekly', 'int', 4, None, 'Wöchentliche Backups (Anzahl)',
+          'So viele wöchentliche Backups werden behalten. 0 = aus'),
+    Field('backup', 'time', 'time', '04:00', None, 'Uhrzeit',
+          'Zu dieser Uhrzeit laufen die täglichen und wöchentlichen Backups. War der Bot zu der Zeit aus, '
+          'holt er sie beim nächsten Start nach'),
+    Field('backup', 'weekday', 'weekday', 6, None, 'Wochentag für wöchentliche Backups',
+          'An diesem Tag läuft zusätzlich zum täglichen das wöchentliche Backup'),
+    Field('backup', 'timezone', 'timezone', 'Europe/Berlin', 'TZ', 'Zeitzone',
+          'Zeitzone für die Uhrzeit, z. B. Europe/Berlin'),
+    Field('backup', 'compress', 'bool', True, None, 'Komprimieren',
+          'Backups als komprimiertes ZIP speichern. Spart meist 30–50 % Platz, dauert etwas länger'),
+    Field('backup', 'excluded_dirs', 'list', ['logs', 'crash-reports', 'cache', 'debug'], None,
+          'Ausgeschlossene Ordner',
+          'Ein Ordner pro Zeile, relativ zum Serverordner, z. B. logs oder plugins/dynmap/web/tiles',
+          details='Kann sicher weg (wird neu erzeugt oder ist nur zur Fehlersuche):\n'
+                  'logs, crash-reports, debug – Logdateien und Absturzberichte\n'
+                  'cache – Download-Cache von Paper/Spigot\n'
+                  'bluemap/web/maps oder plugins/BlueMap/web/maps – gerenderte BlueMap-Karten\n'
+                  'dynmap/web/tiles oder plugins/dynmap/web/tiles – gerenderte Dynmap-Karten\n'
+                  'plugins/squaremap/web/tiles – gerenderte squaremap-Karten\n'
+                  'Nur ausschließen, wenn du sie neu herunterladen kannst:\n'
+                  'libraries, versions, .fabric – Serverdateien des Loaders (Forge/Fabric), '
+                  'nach einer Wiederherstellung ggf. Installer erneut ausführen\n'
+                  'Nie ausschließen:\n'
+                  'world, world_nether, world_the_end (bzw. dein level-name) – die Welt selbst\n'
+                  'mods, plugins, config, defaultconfigs, kubejs – Mods, Plugins und ihre Einstellungen\n'
+                  'server.properties, ops.json, whitelist.json und andere Dateien im Hauptordner'),
+    Field('backup', 'before_command', 'str', 'save-off', None, 'Befehl vor dem Backup',
+          'Wird an laufende Server gesendet, damit die Welt während des Backups nicht geschrieben wird. Leer = keiner'),
+    Field('backup', 'after_command', 'str', 'save-on', None, 'Befehl nach dem Backup',
+          'Wird nach dem Backup an laufende Server gesendet. Leer = keiner'),
+    Field('backup', 'timeout', 'int', 600, None, 'Maximale Wartezeit beim Start (Sekunden)',
+          'So lange wartet /start auf das Backup. Danach startet der Server trotzdem'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
           'Port des Webinterfaces. In Docker 4883 lassen und stattdessen das Port-Mapping ändern'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
@@ -70,6 +141,14 @@ FIELDS = [
 ]
 
 FIELDS_BY_NAME = {f'{field.section}.{field.key}': field for field in FIELDS}
+
+# On/off switches and the setting they enable. The selected ID is kept while switched off.
+TOGGLES = {
+    'discord.command_channel_enabled': 'discord.command_channel_id',
+    'discord.control_role_enabled': 'discord.control_role_id',
+    'status.enabled': 'status.channel_id',
+}
+TOGGLED_BY = {target: toggle for toggle, target in TOGGLES.items()}
 
 
 def parse_value(field: Field, raw):
@@ -90,6 +169,29 @@ def parse_value(field: Field, raw):
         if value < 0:
             raise ValueError(f'{field.label}: must not be negative')
         return value
+    if field.kind == 'time':
+        match = re.fullmatch(r'(\d{1,2}):(\d{2})', str(raw or '').strip())
+        if not match or int(match[1]) > 23 or int(match[2]) > 59:
+            raise ValueError(f'{field.label}: expected HH:MM')
+        return f'{int(match[1]):02d}:{match[2]}'
+    if field.kind == 'weekday':
+        value = int(str(raw).strip())
+        if not 0 <= value <= 6:
+            raise ValueError(f'{field.label}: expected 0 (Monday) to 6 (Sunday)')
+        return value
+    if field.kind == 'timezone':
+        value = str(raw or '').strip()
+        try:
+            ZoneInfo(value)
+        except (ValueError, KeyError):
+            raise ValueError(f'{field.label}: unknown timezone') from None
+        return value
+    if field.kind == 'list':
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            raw = raw.splitlines()
+        return [str(item).strip().strip('/') for item in raw if str(item).strip().strip('/')]
     if field.kind == 'servers':
         if raw is None:
             return []
@@ -121,7 +223,7 @@ def load() -> dict:
             file_data = yaml.safe_load(file) or {}
 
     values = {}
-    complete = True
+    missing = []
     for name, field in FIELDS_BY_NAME.items():
         section = file_data.get(field.section) or {}
         if field.key in section:
@@ -130,10 +232,15 @@ def load() -> dict:
                 continue
             except ValueError:
                 print(f'Invalid value for {name} in {CONFIG_PATH}, using default')
-        complete = False
+        missing.append(name)
         values[name] = _from_env(field)
 
-    if not complete:
+    # Older configs have no switches: switch on what already has an ID
+    for toggle, target in TOGGLES.items():
+        if toggle in missing and not os.environ.get(FIELDS_BY_NAME[toggle].env):
+            values[toggle] = bool(values[target])
+
+    if missing:
         try:
             save(values)
             print(f'Config written to {CONFIG_PATH}')
@@ -176,6 +283,13 @@ def missing_required(values: dict) -> list[str]:
     Return the labels of required fields that are not set.
     """
     return [field.label for name, field in FIELDS_BY_NAME.items() if field.required and not values[name]]
+
+
+def enabled_value(name: str):
+    """
+    Get a setting that has an on/off switch, or 0 if it is switched off.
+    """
+    return config[name] if config[TOGGLED_BY[name]] else 0
 
 
 config = load()
