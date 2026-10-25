@@ -2,21 +2,26 @@
 
 import ast
 
-from core.constants import API_ENDPOINT, allowed_servers
+from core.constants import API_ENDPOINT, allowed_servers, server_order
 from core.network import get_json_response, HttpMethod
 
 
 async def get_servers(include_all: bool = False) -> list[dict] | None:
     """
     Get the list of servers available in the bot (all servers if include_all is set). Returns None on error.
+
+    The servers are in the order set in the web interface, servers missing there follow alphabetically.
     """
     data = await get_json_response(API_ENDPOINT, 'failed to get server list')
     if not data or 'data' not in data:
         return None
+    order = {server_id: index for index, server_id in enumerate(server_order())}
+    servers = sorted(data['data'], key=lambda server: (order.get(server['server_id'], len(order)),
+                                                        str(server.get('server_name', '')).lower()))
     allowed = allowed_servers()
     if include_all or not allowed:
-        return data['data']
-    return [server for server in data['data'] if server['server_id'] in allowed]
+        return servers
+    return [server for server in servers if server['server_id'] in allowed]
 
 
 async def get_server_stats(server_id) -> dict | None:

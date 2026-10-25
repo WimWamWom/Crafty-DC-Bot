@@ -152,6 +152,11 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-fixed .motd-editor { margin: 0; }
 @media (max-width: 560px) { .motd-row { grid-template-columns: minmax(0, 1fr); }
                             .motd-row .num { display: none; } }
+/* Server list with arrows to change the order */
+.order-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.order-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; align-items: center; }
+.order-row .mc-format { height: 38px; }
+.order-row:first-child [data-move="-1"], .order-row:last-child [data-move="1"] { visibility: hidden; }
 /* Domain per server: one row per server with a dropdown */
 .domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
@@ -367,6 +372,30 @@ document.querySelectorAll('.motd-server').forEach(function (select) {
   update();
   show(false);
 });
+// server order: arrows move a row, the hidden inputs send the new order with the form
+document.querySelectorAll('.order-rows').forEach(function (rows) {
+  rows.addEventListener('click', function (event) {
+    var button = event.target.closest('[data-move]');
+    if (!button) return;
+    var row = button.closest('.order-row');
+    if (button.dataset.move === '-1' && row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling);
+    if (button.dataset.move === '1' && row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row);
+    button.focus();
+  });
+  var sorted = function () {
+    return Array.from(rows.children).sort(function (a, b) {
+      return a.textContent.trim().localeCompare(b.textContent.trim(), 'de', {sensitivity: 'base'});
+    });
+  };
+  rows.parentElement.querySelector('.order-abc').addEventListener('click', function () {
+    sorted().forEach(function (row) { rows.appendChild(row); });
+  });
+  rows.closest('form').addEventListener('submit', function () {
+    // alphabetical is the default: save no order, so new servers also show up in their alphabetical place
+    var alphabetical = sorted().every(function (row, index) { return row === rows.children[index]; });
+    rows.querySelectorAll('input[type=hidden]').forEach(function (input) { input.disabled = alphabetical; });
+  });
+});
 document.querySelectorAll('.motd-list').forEach(function (list) {
   var source = document.getElementById(list.dataset.for);
   var editor = document.querySelector('.motd-editor[data-for="' + list.dataset.for + '"]');
@@ -478,7 +507,7 @@ TABS = {
         ('Steuer-Rolle', ['discord.control_role_enabled', 'discord.control_role_id']),
     ]),
     'servers': ('Server', 'Welche Crafty-Server im Bot auftauchen.', [
-        ('Verfügbare Server', ['servers.allowed']),
+        ('Verfügbare Server', ['servers.allowed', 'servers.order']),
     ]),
     'auto_stop': ('Auto-Stop', 'Leere Server automatisch herunterfahren.', [
         ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.idle_minutes']),
@@ -570,8 +599,11 @@ def _motd_hints() -> str:
             f'<p class="mc-heading">Beispiel</p><code>{escape(MOTD_EXAMPLE)}</code>'
             f'<div class="mc-example" data-motd="{escape(MOTD_EXAMPLE)}"></div></details>')
 
+# The server list with checkboxes also sets the order of the servers
+SERVER_ORDER = ('servers.allowed', 'servers.order')
+
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains', 'server_domains', 'server_motds')
+WIDE_KINDS = ('bool', 'servers', 'server_order', 'list', 'lines', 'domains', 'server_domains', 'server_motds')
 
 
 class WebInterface:
@@ -637,7 +669,7 @@ class WebInterface:
         for name, field in cfg.FIELDS_BY_NAME.items():
             if field.kind == 'bool':
                 values[name] = name in form
-            elif field.kind == 'servers':
+            elif field.kind in ('servers', 'server_order'):
                 if f'{name}.present' in form:
                     values[name] = cfg.parse_value(field, form.getall(name, []))
             elif field.kind == 'server_domains':
@@ -918,6 +950,30 @@ class WebInterface:
                 rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
                     f'<div class="domain-rows">{"".join(rows)}</div>{help_text}</div>')
+
+        if field.kind == 'server_order':
+            # shown together with the server list, see SERVER_ORDER
+            return ''
+
+        if name == SERVER_ORDER[0] and servers:
+            # one row per server: available in the bot or not, and arrows to change the order everywhere
+            order_name = SERVER_ORDER[1]
+            rows = []
+            for server in servers:
+                server_id = escape(server['server_id'])
+                checked = ' checked' if server['server_id'] in value else ''
+                rows.append(f'<div class="order-row"><label class="check"><input type="checkbox" name="{name}" '
+                            f'value="{server_id}"{checked}>{escape(server["server_name"])}</label>'
+                            f'<input type="hidden" name="{order_name}" value="{server_id}">'
+                            f'<button type="button" class="mc-format" data-move="-1" aria-label="nach oben">↑</button>'
+                            f'<button type="button" class="mc-format" data-move="1" aria-label="nach unten">↓</button>'
+                            f'</div>')
+            return (f'{open_tag}<label class="name">{escape(field.label)}</label>'
+                    f'<input type="hidden" name="{name}.present" value="1">'
+                    f'<input type="hidden" name="{order_name}.present" value="1">'
+                    f'<div class="order-rows">{"".join(rows)}</div>'
+                    f'<div class="motd-bar"><button type="button" class="mc-format order-abc">Alphabetisch sortieren'
+                    f'</button></div>{help_text}</div>')
 
         if field.kind == 'servers':
             marker = f'<input type="hidden" name="{name}.present" value="1">'
