@@ -48,6 +48,13 @@ def allowed_servers() -> list[str]:
     return get('servers.allowed')
 
 
+def server_order() -> list[str]:
+    """
+    Server IDs in the order set in the web interface.
+    """
+    return get('servers.order')
+
+
 def status_channel_id() -> int:
     """
     Channel of the status embed (0 = disabled or switched off).

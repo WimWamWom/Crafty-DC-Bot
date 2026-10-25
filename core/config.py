@@ -29,8 +29,8 @@ KEEP_MOTD = 'keep'
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, server_motds, time,
-    # weekday or timezone
+    # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, server_motds, server_order,
+    # time, weekday or timezone
     kind: str
     default: object
     env: str | None
@@ -75,7 +75,10 @@ FIELDS = [
     Field('discord', 'control_role_id', 'role', 0, 'CONTROL_ROLE_ID', 'Steuer-Rolle',
           'Nur Mitglieder mit dieser Rolle dürfen /start, /stop und /restart benutzen'),
     Field('servers', 'allowed', 'servers', [], 'ALLOWED_SERVERS', 'Verfügbare Server',
-          'Nur diese Server zeigt und steuert der Bot (Befehle, Status, Auto-Stop, Backups). Nichts ausgewählt = alle'),
+          'Nur angehakte Server zeigt und steuert der Bot (Befehle, Status, Auto-Stop, Backups). Nichts angehakt = alle. '
+          'Am Griff ⠿ ziehst du die Server in die Reihenfolge, die überall gilt'),
+    Field('servers', 'order', 'server_order', [], None, 'Reihenfolge',
+          'Server-IDs in der Reihenfolge für Befehle, Statusübersicht und Webinterface. Fehlende Server folgen alphabetisch'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',
           'Server stoppen, wenn eine Weile niemand online war'),
     Field('auto_stop', 'idle_minutes', 'int', 120, 'AUTO_STOP_IDLE_MINUTES', 'Wartezeit (Minuten)',
@@ -268,7 +271,7 @@ def parse_value(field: Field, raw):
             raise ValueError(f'{field.label}: expected server ID: message')
         return {str(server_id).strip(): str(choice).strip() for server_id, choice in raw.items()
                 if str(server_id).strip() and str(choice or '').strip()}
-    if field.kind == 'servers':
+    if field.kind in ('servers', 'server_order'):
         if raw is None:
             return []
         if isinstance(raw, str):

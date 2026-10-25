@@ -2,9 +2,11 @@
 This module contains a simple web interface to edit the bot configuration.
 """
 
+import asyncio
 import base64
 import binascii
 import hmac
+import time
 from html import escape
 from typing import Callable
 from urllib.parse import urlparse
@@ -13,6 +15,7 @@ import discord
 from aiohttp import web
 
 from core import config as cfg
+from core import icon
 from core.constants import LOGO_URL
 from core.server import get_servers
 
@@ -138,7 +141,7 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-row .empty { color: var(--muted); font-style: italic; }
 .motd-row .k { filter: blur(3px); }
 .motd-row .actions { display: flex; gap: 4px; }
-.motd-row .mc-format.confirm { border-color: var(--bad); color: var(--bad); }
+.motd-row .mc-format.confirm, .icon-remove.confirm { border-color: var(--bad); color: var(--bad); }
 .motd-editor { margin: 2px 0 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 2px;
                background: var(--plate); }
 .motd-editor[hidden] { display: none; }
@@ -146,11 +149,33 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-editor-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
 .motd-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .motd-count { color: var(--muted); font-size: 13px; }
-.motd-row.single { grid-template-columns: minmax(0, 1fr); margin-top: 6px; }
-.motd-fixed { margin: 2px 0 8px; padding: 10px; border: 1px solid var(--line); border-radius: 2px; background: var(--plate); }
+.motd-row.single { grid-template-columns: minmax(0, 1fr) auto; }
+.motd-fixed { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 8px; }
 .motd-fixed[hidden] { display: none; }
+.motd-fixed .motd-editor { margin: 0; }
 @media (max-width: 560px) { .motd-row { grid-template-columns: minmax(0, 1fr); }
                             .motd-row .num { display: none; } }
+/* Server list with arrows to change the order */
+.order-rows { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.order-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px; align-items: center; }
+.order-row.dragging { opacity: .6; }
+.order-row.dragging .check { border-color: var(--accent); }
+.drag { width: 38px; height: 38px; padding: 0; justify-content: center; border: 1px solid var(--line); border-radius: 2px;
+        background: var(--plate); color: var(--muted); font-size: 18px; cursor: grab; touch-action: none; box-shadow: none; }
+.drag:hover, .drag:focus-visible { border-color: var(--accent); color: var(--accent); transform: none; box-shadow: none; }
+.order-row.dragging .drag { cursor: grabbing; }
+/* Server icons: picture, name, upload and remove */
+.icon-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.icon-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.icon-row > span:not(.icon-error) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-icon { width: 48px; height: 48px; border-radius: 2px; border: 1px solid var(--line); background: var(--plate);
+               image-rendering: pixelated; object-fit: cover; }
+.icon-remove[hidden] { display: none; }
+.icon-upload { display: inline-flex; align-items: center; cursor: pointer; }
+.icon-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.icon-upload:focus-within { border-color: var(--accent); color: var(--accent); }
+.icon-error { grid-column: 2 / -1; color: var(--bad); font-size: 13px; }
+.icon-error:empty { display: none; }
 /* Domain per server: one row per server with a dropdown */
 .domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
@@ -184,7 +209,9 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .notice.err { color: var(--bad); background: rgba(255, 107, 91, .07); }
 
 .savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(17, 17, 16, .9);
-           backdrop-filter: blur(8px); border-top: 1px solid var(--line); }
+           backdrop-filter: blur(8px); border-top: 1px solid var(--line); transition: transform .25s ease; }
+/* only shown once something was changed */
+.savebar.hidden { transform: translateY(110%); }
 .savebar .inner { max-width: 1160px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center;
                   justify-content: space-between; gap: 16px; }
 .savebar small { font: 12px var(--mono); color: var(--dim); }
@@ -227,7 +254,29 @@ tabs.forEach(function (tab) {
   });
 });
 var firstError = document.querySelector('nav.tabs a.has-error');
-showTab(firstError ? firstError.dataset.tab : location.hash.slice(1));
+// save bar: only shown when the form differs from the saved settings (and after a failed save)
+var form = document.querySelector('form');
+var savebar = document.querySelector('.savebar');
+var formState = function () { return new URLSearchParams(new FormData(form)).toString(); };
+// a failed save keeps the bar, the changes are not saved yet
+var keepBar = !savebar.classList.contains('hidden');
+var savedState = null;
+// once every script on the page has set up its fields
+setTimeout(function () { savedState = formState(); });
+var checkChanges = function () {
+  // after the handlers that change the form, e.g. dragging a server or editing a MOTD message
+  setTimeout(function () {
+    if (savedState !== null) savebar.classList.toggle('hidden', !keepBar && formState() === savedState);
+  });
+};
+['input', 'change', 'click', 'pointerup', 'keyup'].forEach(function (type) {
+  form.addEventListener(type, checkChanges);
+});
+// links to the tabs before they were merged
+var OLD_TABS = {crafty: 'connection', web: 'connection', status: 'discord', session: 'discord',
+                auto_stop: 'servers', address: 'servers'};
+var hash = location.hash.slice(1);
+showTab(firstError ? firstError.dataset.tab : OLD_TABS[hash] || hash);
 
 // Dim settings whose on/off switch is off. The value is still submitted, so it is kept for later.
 document.querySelectorAll('[data-toggled-by]').forEach(function (field) {
@@ -339,17 +388,125 @@ document.querySelectorAll('.motd-server').forEach(function (select) {
   var box = document.querySelector('.motd-fixed[data-for="' + select.name + '"]');
   var input = box.querySelector('input');
   var target = box.querySelector('.lines');
+  var editor = box.querySelector('.motd-editor');
+  var toggle = box.querySelector('.motd-toggle');
+  // the editor stays closed until it is needed, only the preview shows
+  var show = function (open) {
+    editor.hidden = !open;
+    toggle.textContent = open ? 'Schließen' : 'Bearbeiten';
+    box.querySelector('.motd-row').classList.toggle('editing', open);
+    if (open) input.focus();
+  };
   var update = function () {
     box.hidden = select.value !== 'fixed';
     renderMotdPreview(input.value, target);
   };
-  select.addEventListener('change', update);
+  select.addEventListener('change', function () {
+    update();
+    show(select.value === 'fixed' && !input.value.trim());
+  });
   input.addEventListener('input', update);
   input.addEventListener('keydown', function (event) {
-    // Enter would send the form
-    if (event.key === 'Enter') event.preventDefault();
+    // Enter would send the form: close the editor instead
+    if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); show(false); }
   });
+  toggle.addEventListener('click', function () { show(editor.hidden); });
+  box.querySelector('.motd-done').addEventListener('click', function () { show(false); });
   update();
+  show(false);
+});
+// server order: rows are moved by dragging, the hidden inputs send the new order with the form
+document.querySelectorAll('.order-rows').forEach(function (rows) {
+  // drag and drop with the handle, for mouse and touch
+  var dragged = null;
+  rows.addEventListener('pointerdown', function (event) {
+    var handle = event.target.closest('.drag');
+    if (!handle) return;
+    event.preventDefault();
+    dragged = handle.closest('.order-row');
+    dragged.classList.add('dragging');
+    handle.setPointerCapture(event.pointerId);
+  });
+  rows.addEventListener('pointermove', function (event) {
+    if (!dragged) return;
+    // put the row before the first row whose middle is below the pointer
+    var next = Array.from(rows.children).find(function (row) {
+      var box = row.getBoundingClientRect();
+      return row !== dragged && event.clientY < box.top + box.height / 2;
+    });
+    if (next) { if (next !== dragged.nextElementSibling) rows.insertBefore(dragged, next); }
+    else if (dragged !== rows.lastElementChild) rows.appendChild(dragged);
+  });
+  var drop = function () {
+    if (dragged) dragged.classList.remove('dragging');
+    dragged = null;
+  };
+  rows.addEventListener('pointerup', drop);
+  rows.addEventListener('pointercancel', drop);
+  // keyboard: arrow keys on the handle move the row
+  rows.addEventListener('keydown', function (event) {
+    var handle = event.target.closest('.drag');
+    if (!handle) return;
+    var row = handle.closest('.order-row');
+    if (event.key === 'ArrowUp' && row.previousElementSibling) rows.insertBefore(row, row.previousElementSibling);
+    else if (event.key === 'ArrowDown' && row.nextElementSibling) rows.insertBefore(row.nextElementSibling, row);
+    else return;
+    event.preventDefault();
+    handle.focus();
+  });
+  var sorted = function () {
+    return Array.from(rows.children).sort(function (a, b) {
+      return a.textContent.trim().localeCompare(b.textContent.trim(), 'de', {sensitivity: 'base'});
+    });
+  };
+  rows.parentElement.querySelector('.order-abc').addEventListener('click', function () {
+    sorted().forEach(function (row) { rows.appendChild(row); });
+  });
+  rows.closest('form').addEventListener('submit', function () {
+    // alphabetical is the default: save no order, so new servers also show up in their alphabetical place
+    var alphabetical = sorted().every(function (row, index) { return row === rows.children[index]; });
+    rows.querySelectorAll('input[type=hidden]').forEach(function (input) { input.disabled = alphabetical; });
+  });
+});
+// server icons: upload or remove at once, without the save button
+document.querySelectorAll('.icon-row').forEach(function (row) {
+  var image = row.querySelector('img');
+  var remove = row.querySelector('.icon-remove');
+  var error = row.querySelector('.icon-error');
+  var send = function (path, body) {
+    error.textContent = '';
+    return fetch(path, {method: 'POST', body: body}).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.error || 'Fehler beim Speichern');
+        return data;
+      });
+    }).catch(function (e) { error.textContent = e.message; throw e; });
+  };
+  row.querySelector('input[type=file]').addEventListener('change', function (event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    var body = new FormData();
+    body.append('icon', file);
+    send('/icon/' + row.dataset.server, body).then(function (data) {
+      image.src = data.url;
+      remove.hidden = false;
+    }).catch(function () {});
+    event.target.value = '';
+  });
+  remove.addEventListener('click', function () {
+    if (!remove.classList.contains('confirm')) {
+      remove.classList.add('confirm');
+      remove.textContent = 'Wirklich entfernen?';
+      setTimeout(function () { remove.classList.remove('confirm'); remove.textContent = 'Entfernen'; }, 4000);
+      return;
+    }
+    send('/icon/' + row.dataset.server + '/delete').then(function () {
+      image.removeAttribute('src');
+      remove.hidden = true;
+      remove.classList.remove('confirm');
+      remove.textContent = 'Entfernen';
+    }).catch(function () {});
+  });
 });
 document.querySelectorAll('.motd-list').forEach(function (list) {
   var source = document.getElementById(list.dataset.for);
@@ -450,32 +607,34 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
 
 WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 
-# One tab per config section: short tab label, intro line and groups of fields.
-# Fields of a section that are not listed in a group end up in an extra group at the end.
+# Group entry for the server icons, which are files and not a config setting
+ICONS = 'icons'
+
+# One tab per topic: label, intro line and groups of fields from any config section.
+# Fields not listed in any group end up in an extra group of the last tab.
 TABS = {
-    'crafty': ('Crafty', 'Verbindung zu deinem Crafty Controller.', [
-        ('Verbindung', ['crafty.url', 'crafty.token']),
+    'connection': ('Verbindung', 'Was du einmal einrichtest: Crafty, der Discord-Bot und der Zugang zu dieser Seite.', [
+        ('Crafty', ['crafty.url', 'crafty.token']),
+        ('Discord-Bot', ['discord.token', 'discord.guild_id']),
+        ('Webinterface', ['web.port', 'web.password']),
     ]),
-    'discord': ('Discord', 'Bot-Token, Discord-Server und wer den Bot wo benutzen darf.', [
-        ('Bot', ['discord.token', 'discord.guild_id']),
+    'discord': ('Discord', 'Wer den Bot wo benutzen darf und wo er schreibt.', [
         ('Befehlskanal', ['discord.command_channel_enabled', 'discord.command_channel_id']),
         ('Steuer-Rolle', ['discord.control_role_enabled', 'discord.control_role_id']),
-    ]),
-    'servers': ('Server', 'Welche Crafty-Server im Bot auftauchen.', [
-        ('Verfügbare Server', ['servers.allowed']),
-    ]),
-    'auto_stop': ('Auto-Stop', 'Leere Server automatisch herunterfahren.', [
-        ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.idle_minutes']),
-    ]),
-    'status': ('Status', 'Eine Nachricht mit allen Servern, die sich selbst aktualisiert.', [
         ('Statusübersicht', ['status.enabled', 'status.channel_id', 'status.update_interval']),
-    ]),
-    'session': ('Start & Stopp', 'Eine Nachricht pro Serverstart, vom Backup bis zum Stopp.', [
         ('Start- und Stopp-Nachrichten', ['session.enabled', 'session.channel_id']),
     ]),
-    'address': ('Domains', 'Welche Domain ein Server bekommt und im Start-Embed zeigt.', [
+    'servers': ('Server', 'Welche Server der Bot zeigt, in welcher Reihenfolge, wann sie stoppen und welche Domain '
+                          'sie bekommen.', [
+        ('Verfügbare Server', ['servers.allowed', 'servers.order']),
+        ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.idle_minutes']),
         ('Domains', ['address.enabled', 'address.domains']),
         ('Domain pro Server', ['address.fixed']),
+    ]),
+    'motd': ('MOTD', 'Text und Icon neben dem Servernamen in der Serverliste.', [
+        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
+        ('Pro Server', ['motd.servers']),
+        ('Server-Icon', [ICONS]),
     ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
@@ -484,13 +643,6 @@ TABS = {
         ('Inhalt', ['backup.excluded_dirs', 'backup.before_command', 'backup.after_command', 'backup.timeout']),
         ('Server ohne Backups', ['backup.excluded_servers', 'backup.delete_excluded']),
         ('Aufräumen', ['backup.delete_after_days']),
-    ]),
-    'motd': ('MOTD', 'Ein zufälliger Text unter dem Servernamen in der Serverliste, neu bei jedem Start.', [
-        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
-        ('Pro Server', ['motd.servers']),
-    ]),
-    'web': ('Webinterface', 'Zugang zu dieser Seite.', [
-        ('Zugang', ['web.port', 'web.password']),
     ]),
 }
 
@@ -554,8 +706,11 @@ def _motd_hints() -> str:
             f'<p class="mc-heading">Beispiel</p><code>{escape(MOTD_EXAMPLE)}</code>'
             f'<div class="mc-example" data-motd="{escape(MOTD_EXAMPLE)}"></div></details>')
 
+# The server list with checkboxes also sets the order of the servers
+SERVER_ORDER = ('servers.allowed', 'servers.order')
+
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains', 'server_domains', 'server_motds')
+WIDE_KINDS = ('bool', 'servers', 'server_order', 'list', 'lines', 'domains', 'server_domains', 'server_motds')
 
 
 class WebInterface:
@@ -571,8 +726,13 @@ class WebInterface:
     def __init__(self, bot: discord.Client, on_saved: Callable[[set[str]], bool]):
         self.bot = bot
         self.on_saved = on_saved
-        self.app = web.Application(middlewares=[self.auth_middleware])
-        self.app.add_routes([web.get('/', self.index), web.post('/', self.save)])
+        # room for an uploaded picture, the rest of the page sends only a few kB
+        self.app = web.Application(middlewares=[self.auth_middleware], client_max_size=icon.MAX_UPLOAD + 1024 * 1024)
+        self.app.add_routes([web.get('/', self.index), web.post('/', self.save),
+                             web.get('/icon/{server_id}.png', self.get_icon),
+                             web.post('/icon/{server_id}', self.upload_icon),
+                             web.post('/icon/{server_id}/delete', self.remove_icon)])
+        self.tasks: set[asyncio.Task] = set()
         self.runner: web.AppRunner | None = None
 
     async def start(self, port: int) -> None:
@@ -608,10 +768,51 @@ class WebInterface:
     async def index(self, request: web.Request) -> web.Response:
         return await self.render()
 
-    async def save(self, request: web.Request) -> web.Response:
-        # reject form posts from other sites
+    @staticmethod
+    def _foreign(request: web.Request) -> bool:
+        # form posts from other sites
         origin = request.headers.get('Origin')
-        if origin and urlparse(origin).netloc != request.host:
+        return bool(origin) and urlparse(origin).netloc != request.host
+
+    async def get_icon(self, request: web.Request) -> web.StreamResponse:
+        try:
+            path = icon.icon_path(request.match_info['server_id'])
+        except ValueError:
+            raise web.HTTPNotFound()
+        if not icon.has_icon(request.match_info['server_id']):
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={'Cache-Control': 'no-store'})
+
+    async def upload_icon(self, request: web.Request) -> web.Response:
+        server_id = request.match_info['server_id']
+        if self._foreign(request) or not icon.SERVER_ID.fullmatch(server_id):
+            return web.json_response({'error': 'Nicht erlaubt'}, status=403)
+        try:
+            form = await request.post()
+            upload = form.get('icon')
+            if upload is None or not hasattr(upload, 'file'):
+                raise ValueError('no picture')
+            icon.save_icon(server_id, upload.file.read(icon.MAX_UPLOAD + 1))
+        except web.HTTPRequestEntityTooLarge:
+            return web.json_response({'error': 'Bild zu groß (höchstens 10 MB)'}, status=413)
+        except ValueError:
+            return web.json_response({'error': 'Das ist kein Bild, das sich lesen lässt'}, status=400)
+        # write it into the server folder now, so the next start shows it, also from Crafty
+        task = asyncio.create_task(icon.set_icon(server_id))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        print(f'web: new icon for {server_id}')
+        return web.json_response({'url': f'/icon/{server_id}.png?v={int(time.time())}'})
+
+    async def remove_icon(self, request: web.Request) -> web.Response:
+        server_id = request.match_info['server_id']
+        if self._foreign(request) or not icon.SERVER_ID.fullmatch(server_id):
+            return web.json_response({'error': 'Nicht erlaubt'}, status=403)
+        icon.delete_icon(server_id)
+        return web.json_response({})
+
+    async def save(self, request: web.Request) -> web.Response:
+        if self._foreign(request):
             return web.Response(status=403, text='Forbidden')
 
         form = await request.post()
@@ -621,7 +822,7 @@ class WebInterface:
         for name, field in cfg.FIELDS_BY_NAME.items():
             if field.kind == 'bool':
                 values[name] = name in form
-            elif field.kind == 'servers':
+            elif field.kind in ('servers', 'server_order'):
                 if f'{name}.present' in form:
                     values[name] = cfg.parse_value(field, form.getall(name, []))
             elif field.kind == 'server_domains':
@@ -704,23 +905,23 @@ class WebInterface:
                            + escape(', '.join(missing)) + '</div>')
         if not cfg.config['web.password']:
             notices.append('<div class="notice err">Das Webinterface hat kein Passwort. '
-                           'Setze im Tab „Webinterface“ eins, wenn der Port von außen erreichbar ist.</div>')
+                           'Setze im Tab „Verbindung“ eins, wenn der Port von außen erreichbar ist.</div>')
 
         nav = []
         panels = []
-        for index, (section, title) in enumerate(cfg.SECTIONS.items()):
-            tab_label, intro, groups = TABS.get(section, (title, '', []))
-            section_fields = [name for name, field in cfg.FIELDS_BY_NAME.items() if field.section == section]
-            listed = {name for _, names in groups for name in names}
-            leftover = [name for name in section_fields if name not in listed]
-            groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME]) for group, names in groups]
-            if leftover:
-                groups.append(('Weitere' if groups else title, leftover))
+        listed = {name for _, _, groups in TABS.values() for _, names in groups for name in names}
+        leftover = [name for name in cfg.FIELDS_BY_NAME if name not in listed]
+        for index, (section, (title, intro, groups)) in enumerate(TABS.items()):
+            groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME or name == ICONS])
+                      for group, names in groups]
+            if leftover and index == len(TABS) - 1:
+                groups.append(('Weitere', leftover))
+            section_fields = [name for _, names in groups for name in names if name != ICONS]
             accent = f'style="--accent:{ACCENTS[index % len(ACCENTS)]}"'
 
             error_class = ' has-error' if invalid.intersection(section_fields) else ''
             nav.append(f'<a href="#{section}" data-tab="{section}" class="{error_class.strip()}" {accent}>'
-                       f'<span class="label"><i class="dot"></i>{escape(tab_label)}</span></a>')
+                       f'<span class="label"><i class="dot"></i>{escape(title)}</span></a>')
 
             html = [f'<section class="tab" id="tab-{section}" {accent}><div class="tab-head"><div>'
                     f'<h2>{escape(title)}<span>.</span></h2>']
@@ -732,6 +933,9 @@ class WebInterface:
             for group, names in groups:
                 html.append(f'<div class="group"><h3>{escape(group)}</h3><div class="grid">')
                 for name in names:
+                    if name == ICONS:
+                        html.append(self._render_icons(servers))
+                        continue
                     html.append(self._render_field(name, cfg.FIELDS_BY_NAME[name], values[name], guild, servers,
                                                    name in invalid, values))
                 html.append('</div></div>')
@@ -747,7 +951,7 @@ class WebInterface:
 
         body = (f'<nav class="tabs">{"".join(nav)}</nav>'
                 f'<form method="post" class="content">{"".join(notices)}{"".join(panels)}'
-                f'<div class="savebar"><div class="inner"><small>Speichert alle Bereiche. Nur Discord-Token, Server-ID und Port brauchen einen Neustart.</small>'
+                f'<div class="savebar{"" if errors else " hidden"}"><div class="inner"><small>Speichert alle Bereiche. Nur Discord-Token, Server-ID und Port brauchen einen Neustart.</small>'
                 f'<button type="submit">Speichern<span class="go" aria-hidden="true">→</span>'
                 f'</button></div></div></form>')
         return self._page(body, state=state)
@@ -763,6 +967,33 @@ class WebInterface:
                 f'{body}<footer><span>Crafty Bot · Port {cfg.config["web.port"]}</span>'
                 f'<span>{escape(cfg.CONFIG_PATH)}</span></footer></div>{SCRIPT}</body></html>')
         return web.Response(text=html, content_type='text/html')
+
+    @staticmethod
+    def _render_icons(servers: list[dict] | None) -> str:
+        """
+        One row per server with its icon and buttons to upload or remove it. Uploads take effect at once.
+        """
+        help_text = ('<div class="help">Jedes Bild wird quadratisch zugeschnitten und als PNG mit 64x64 Pixeln '
+                     'gespeichert, die einzige Größe, die Minecraft anzeigt. Gilt ab dem nächsten Start. '
+                     'Ohne Icon lässt der Bot das Icon des Servers, wie es ist</div>')
+        if servers is None:
+            return ('<div class="field wide"><div class="help">Serverliste konnte nicht von Crafty geladen werden. '
+                    'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
+        rows = []
+        for server in servers:
+            server_id = escape(server['server_id'])
+            has = icon.SERVER_ID.fullmatch(server['server_id']) and icon.has_icon(server['server_id'])
+            src = f' src="/icon/{server_id}.png?v={int(time.time())}"' if has else ''
+            rows.append(f'<div class="icon-row" data-server="{server_id}"><img class="server-icon" alt=""{src}>'
+                        f'<span>{escape(server["server_name"])}</span>'
+                        f'<label class="mc-format icon-upload">Hochladen<input type="file" accept="image/*" '
+                        f'aria-label="Icon für {escape(server["server_name"])} hochladen"></label>'
+                        f'<button type="button" class="mc-format icon-remove"{"" if has else " hidden"}>Entfernen'
+                        f'</button><span class="icon-error"></span></div>')
+        if not servers:
+            rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
+        return (f'<div class="field wide"><label class="name">Icon pro Server</label>'
+                f'<div class="icon-rows">{"".join(rows)}</div>{help_text}</div>')
 
     @staticmethod
     def _render_field(name: str, field: cfg.Field, value, guild: discord.Guild | None,
@@ -845,7 +1076,7 @@ class WebInterface:
                                  for server_id, choice in value.items())
                 return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
                         f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
             domains = [entry.rsplit(':', 1)[0] for entry in (values or cfg.config)['address.domains']]
             rows = []
             for server in servers:
@@ -878,7 +1109,7 @@ class WebInterface:
                                    f'<input type="hidden" name="{key}.text" value="{escape(choice)}">')
                 return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
                         f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
             rows = []
             for server in servers:
                 key = f'{name}.{escape(server["server_id"])}'
@@ -890,14 +1121,41 @@ class WebInterface:
                                        f'{option_text}</option>' for option, option_text in options)
                 rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>'
                             f'<select class="motd-server" name="{key}">{html_options}</select></label>'
-                            f'<div class="motd-fixed" data-for="{key}">{_motd_toolbar(key + ".text")}'
+                            f'<div class="motd-fixed" data-for="{key}">'
+                            f'<div class="motd-row single"><div class="lines"></div><div class="actions">'
+                            f'<button type="button" class="mc-format motd-toggle">Bearbeiten</button></div></div>'
+                            f'<div class="motd-editor">{_motd_toolbar(key + ".text")}'
                             f'<input type="text" id="{key}.text" name="{key}.text" value="{escape(text)}" '
                             f'autocomplete="off" aria-label="Feste MOTD für {escape(server["server_name"])}">'
-                            f'<div class="motd-row single"><div class="lines"></div></div></div>')
+                            f'<div class="motd-editor-actions"><button type="button" class="mc-format motd-done">'
+                            f'Fertig</button></div></div></div>')
             if not servers:
                 rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
                     f'<div class="domain-rows">{"".join(rows)}</div>{help_text}</div>')
+
+        if field.kind == 'server_order':
+            # shown together with the server list, see SERVER_ORDER
+            return ''
+
+        if name == SERVER_ORDER[0] and servers:
+            # one row per server: available in the bot or not, and arrows to change the order everywhere
+            order_name = SERVER_ORDER[1]
+            rows = []
+            for server in servers:
+                server_id = escape(server['server_id'])
+                checked = ' checked' if server['server_id'] in value else ''
+                rows.append(f'<div class="order-row"><label class="check"><input type="checkbox" name="{name}" '
+                            f'value="{server_id}"{checked}>{escape(server["server_name"])}</label>'
+                            f'<input type="hidden" name="{order_name}" value="{server_id}">'
+                            f'<button type="button" class="drag" title="Ziehen zum Sortieren" '
+                            f'aria-label="{escape(server["server_name"])} verschieben (Pfeiltasten)">⠿</button></div>')
+            return (f'{open_tag}<label class="name">{escape(field.label)}</label>'
+                    f'<input type="hidden" name="{name}.present" value="1">'
+                    f'<input type="hidden" name="{order_name}.present" value="1">'
+                    f'<div class="order-rows">{"".join(rows)}</div>'
+                    f'<div class="motd-bar"><button type="button" class="mc-format order-abc">Alphabetisch sortieren'
+                    f'</button></div>{help_text}</div>')
 
         if field.kind == 'servers':
             marker = f'<input type="hidden" name="{name}.present" value="1">'
@@ -907,7 +1165,7 @@ class WebInterface:
                                  for server_id in value)
                 return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
                         f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
             checks = []
             for server in servers:
                 server_id = server['server_id']
