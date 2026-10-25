@@ -146,9 +146,10 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-editor-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
 .motd-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .motd-count { color: var(--muted); font-size: 13px; }
-.motd-row.single { grid-template-columns: minmax(0, 1fr); margin-top: 6px; }
-.motd-fixed { margin: 2px 0 8px; padding: 10px; border: 1px solid var(--line); border-radius: 2px; background: var(--plate); }
+.motd-row.single { grid-template-columns: minmax(0, 1fr) auto; }
+.motd-fixed { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 8px; }
 .motd-fixed[hidden] { display: none; }
+.motd-fixed .motd-editor { margin: 0; }
 @media (max-width: 560px) { .motd-row { grid-template-columns: minmax(0, 1fr); }
                             .motd-row .num { display: none; } }
 /* Domain per server: one row per server with a dropdown */
@@ -339,17 +340,32 @@ document.querySelectorAll('.motd-server').forEach(function (select) {
   var box = document.querySelector('.motd-fixed[data-for="' + select.name + '"]');
   var input = box.querySelector('input');
   var target = box.querySelector('.lines');
+  var editor = box.querySelector('.motd-editor');
+  var toggle = box.querySelector('.motd-toggle');
+  // the editor stays closed until it is needed, only the preview shows
+  var show = function (open) {
+    editor.hidden = !open;
+    toggle.textContent = open ? 'Schließen' : 'Bearbeiten';
+    box.querySelector('.motd-row').classList.toggle('editing', open);
+    if (open) input.focus();
+  };
   var update = function () {
     box.hidden = select.value !== 'fixed';
     renderMotdPreview(input.value, target);
   };
-  select.addEventListener('change', update);
+  select.addEventListener('change', function () {
+    update();
+    show(select.value === 'fixed' && !input.value.trim());
+  });
   input.addEventListener('input', update);
   input.addEventListener('keydown', function (event) {
-    // Enter would send the form
-    if (event.key === 'Enter') event.preventDefault();
+    // Enter would send the form: close the editor instead
+    if (event.key === 'Enter' || event.key === 'Escape') { event.preventDefault(); show(false); }
   });
+  toggle.addEventListener('click', function () { show(editor.hidden); });
+  box.querySelector('.motd-done').addEventListener('click', function () { show(false); });
   update();
+  show(false);
 });
 document.querySelectorAll('.motd-list').forEach(function (list) {
   var source = document.getElementById(list.dataset.for);
@@ -890,10 +906,14 @@ class WebInterface:
                                        f'{option_text}</option>' for option, option_text in options)
                 rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>'
                             f'<select class="motd-server" name="{key}">{html_options}</select></label>'
-                            f'<div class="motd-fixed" data-for="{key}">{_motd_toolbar(key + ".text")}'
+                            f'<div class="motd-fixed" data-for="{key}">'
+                            f'<div class="motd-row single"><div class="lines"></div><div class="actions">'
+                            f'<button type="button" class="mc-format motd-toggle">Bearbeiten</button></div></div>'
+                            f'<div class="motd-editor">{_motd_toolbar(key + ".text")}'
                             f'<input type="text" id="{key}.text" name="{key}.text" value="{escape(text)}" '
                             f'autocomplete="off" aria-label="Feste MOTD für {escape(server["server_name"])}">'
-                            f'<div class="motd-row single"><div class="lines"></div></div></div>')
+                            f'<div class="motd-editor-actions"><button type="button" class="mc-format motd-done">'
+                            f'Fertig</button></div></div></div>')
             if not servers:
                 rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
