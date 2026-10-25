@@ -24,3 +24,6 @@ STATUS_UPDATE_INTERVAL: int = max(get('status.update_interval'), 10)
 
 # Web interface
 WEB_PORT: int = get('web.port')
+
+# Backups
+BACKUP_ENABLED: bool = get('backup.enabled')

@@ -41,6 +41,12 @@ input[type=text], input[type=password], input[type=number], select {
   background: var(--bg); color: var(--text); font: inherit; }
 .check { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
 .check small { color: var(--muted); }
+textarea { width: 100%; min-height: 110px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+           background: var(--bg); color: var(--text); font: 14px/1.4 ui-monospace, monospace; }
+details { color: var(--muted); font-size: 13px; margin-top: 6px; }
+details summary { cursor: pointer; }
+details ul { margin: 6px 0 0; padding-left: 18px; }
+details li.head { list-style: none; margin: 8px 0 2px -18px; font-weight: 600; color: var(--text); }
 .notice { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); }
 .notice.err { background: var(--err-bg); color: var(--err); }
@@ -59,6 +65,8 @@ document.querySelectorAll('[data-toggled-by]').forEach(function (field) {
   update();
 });
 </script>"""
+
+WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 
 
 class WebInterface:
@@ -197,7 +205,12 @@ class WebInterface:
         label = f'<label class="name" for="{name}">{escape(field.label)}</label>'
         # lets the page dim the setting while its switch is off
         toggled_by = f' data-toggled-by="{cfg.TOGGLED_BY[name]}"' if name in cfg.TOGGLED_BY else ''
-        help_text = f'<div class="help">{escape(field.help)}</div>'
+        help_text = f'<div class="help">{escape(field.help)}</div>' if field.help else ''
+        if field.details:
+            # lines ending with a colon are headings
+            items = ''.join(f'<li class="head">{escape(line)}</li>' if line.endswith(':')
+                            else f'<li>{escape(line)}</li>' for line in field.details.splitlines())
+            help_text += f'<details><summary>Hinweise</summary><ul>{items}</ul></details>'
 
         if field.kind == 'bool':
             checked = ' checked' if value else ''
@@ -226,6 +239,19 @@ class WebInterface:
                 html_options.append(f'<option value="{option_id}"{selected}>{escape(option_name)}</option>')
             return (f'<div class="field"{toggled_by}>{label}<select id="{name}" name="{name}">'
                     f'{"".join(html_options)}</select>{help_text}</div>')
+
+        if field.kind == 'list':
+            return (f'<div class="field">{label}<textarea id="{name}" name="{name}">'
+                    f'{escape(chr(10).join(value))}</textarea>{help_text}</div>')
+
+        if field.kind == 'weekday':
+            options = ''.join(f'<option value="{day}"{" selected" if day == value else ""}>{day_name}</option>'
+                              for day, day_name in enumerate(WEEKDAYS))
+            return f'<div class="field">{label}<select id="{name}" name="{name}">{options}</select>{help_text}</div>'
+
+        if field.kind == 'time':
+            return (f'<div class="field">{label}<input type="time" id="{name}" name="{name}" '
+                    f'value="{escape(value)}">{help_text}</div>')
 
         if field.kind == 'servers':
             marker = f'<input type="hidden" name="{name}.present" value="1">'
