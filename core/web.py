@@ -252,7 +252,11 @@ tabs.forEach(function (tab) {
   });
 });
 var firstError = document.querySelector('nav.tabs a.has-error');
-showTab(firstError ? firstError.dataset.tab : location.hash.slice(1));
+// links to the tabs before they were merged
+var OLD_TABS = {crafty: 'connection', web: 'connection', status: 'discord', session: 'discord',
+                auto_stop: 'servers', address: 'servers'};
+var hash = location.hash.slice(1);
+showTab(firstError ? firstError.dataset.tab : OLD_TABS[hash] || hash);
 
 // Dim settings whose on/off switch is off. The value is still submitted, so it is kept for later.
 document.querySelectorAll('[data-toggled-by]').forEach(function (field) {
@@ -586,32 +590,31 @@ WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag'
 # Group entry for the server icons, which are files and not a config setting
 ICONS = 'icons'
 
-# One tab per config section: short tab label, intro line and groups of fields.
-# Fields of a section that are not listed in a group end up in an extra group at the end.
+# One tab per topic: label, intro line and groups of fields from any config section.
+# Fields not listed in any group end up in an extra group of the last tab.
 TABS = {
-    'crafty': ('Crafty', 'Verbindung zu deinem Crafty Controller.', [
-        ('Verbindung', ['crafty.url', 'crafty.token']),
+    'connection': ('Verbindung', 'Was du einmal einrichtest: Crafty, der Discord-Bot und der Zugang zu dieser Seite.', [
+        ('Crafty', ['crafty.url', 'crafty.token']),
+        ('Discord-Bot', ['discord.token', 'discord.guild_id']),
+        ('Webinterface', ['web.port', 'web.password']),
     ]),
-    'discord': ('Discord', 'Bot-Token, Discord-Server und wer den Bot wo benutzen darf.', [
-        ('Bot', ['discord.token', 'discord.guild_id']),
+    'discord': ('Discord', 'Wer den Bot wo benutzen darf und wo er schreibt.', [
         ('Befehlskanal', ['discord.command_channel_enabled', 'discord.command_channel_id']),
         ('Steuer-Rolle', ['discord.control_role_enabled', 'discord.control_role_id']),
-    ]),
-    'servers': ('Server', 'Welche Crafty-Server im Bot auftauchen.', [
-        ('Verfügbare Server', ['servers.allowed', 'servers.order']),
-    ]),
-    'auto_stop': ('Auto-Stop', 'Leere Server automatisch herunterfahren.', [
-        ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.idle_minutes']),
-    ]),
-    'status': ('Status', 'Eine Nachricht mit allen Servern, die sich selbst aktualisiert.', [
         ('Statusübersicht', ['status.enabled', 'status.channel_id', 'status.update_interval']),
-    ]),
-    'session': ('Start & Stopp', 'Eine Nachricht pro Serverstart, vom Backup bis zum Stopp.', [
         ('Start- und Stopp-Nachrichten', ['session.enabled', 'session.channel_id']),
     ]),
-    'address': ('Domains', 'Welche Domain ein Server bekommt und im Start-Embed zeigt.', [
+    'servers': ('Server', 'Welche Server der Bot zeigt, in welcher Reihenfolge, wann sie stoppen und welche Domain '
+                          'sie bekommen.', [
+        ('Verfügbare Server', ['servers.allowed', 'servers.order']),
+        ('Auto-Stop', ['auto_stop.enabled', 'auto_stop.idle_minutes']),
         ('Domains', ['address.enabled', 'address.domains']),
         ('Domain pro Server', ['address.fixed']),
+    ]),
+    'motd': ('MOTD', 'Text und Icon neben dem Servernamen in der Serverliste.', [
+        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
+        ('Pro Server', ['motd.servers']),
+        ('Server-Icon', [ICONS]),
     ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
@@ -620,14 +623,6 @@ TABS = {
         ('Inhalt', ['backup.excluded_dirs', 'backup.before_command', 'backup.after_command', 'backup.timeout']),
         ('Server ohne Backups', ['backup.excluded_servers', 'backup.delete_excluded']),
         ('Aufräumen', ['backup.delete_after_days']),
-    ]),
-    'motd': ('MOTD', 'Ein zufälliger Text unter dem Servernamen in der Serverliste, neu bei jedem Start.', [
-        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
-        ('Pro Server', ['motd.servers']),
-        ('Server-Icon', [ICONS]),
-    ]),
-    'web': ('Webinterface', 'Zugang zu dieser Seite.', [
-        ('Zugang', ['web.port', 'web.password']),
     ]),
 }
 
@@ -890,24 +885,23 @@ class WebInterface:
                            + escape(', '.join(missing)) + '</div>')
         if not cfg.config['web.password']:
             notices.append('<div class="notice err">Das Webinterface hat kein Passwort. '
-                           'Setze im Tab „Webinterface“ eins, wenn der Port von außen erreichbar ist.</div>')
+                           'Setze im Tab „Verbindung“ eins, wenn der Port von außen erreichbar ist.</div>')
 
         nav = []
         panels = []
-        for index, (section, title) in enumerate(cfg.SECTIONS.items()):
-            tab_label, intro, groups = TABS.get(section, (title, '', []))
-            section_fields = [name for name, field in cfg.FIELDS_BY_NAME.items() if field.section == section]
-            listed = {name for _, names in groups for name in names}
-            leftover = [name for name in section_fields if name not in listed]
+        listed = {name for _, _, groups in TABS.values() for _, names in groups for name in names}
+        leftover = [name for name in cfg.FIELDS_BY_NAME if name not in listed]
+        for index, (section, (title, intro, groups)) in enumerate(TABS.items()):
             groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME or name == ICONS])
                       for group, names in groups]
-            if leftover:
-                groups.append(('Weitere' if groups else title, leftover))
+            if leftover and index == len(TABS) - 1:
+                groups.append(('Weitere', leftover))
+            section_fields = [name for _, names in groups for name in names if name != ICONS]
             accent = f'style="--accent:{ACCENTS[index % len(ACCENTS)]}"'
 
             error_class = ' has-error' if invalid.intersection(section_fields) else ''
             nav.append(f'<a href="#{section}" data-tab="{section}" class="{error_class.strip()}" {accent}>'
-                       f'<span class="label"><i class="dot"></i>{escape(tab_label)}</span></a>')
+                       f'<span class="label"><i class="dot"></i>{escape(title)}</span></a>')
 
             html = [f'<section class="tab" id="tab-{section}" {accent}><div class="tab-head"><div>'
                     f'<h2>{escape(title)}<span>.</span></h2>']
@@ -964,7 +958,7 @@ class WebInterface:
                      'Ohne Icon lässt der Bot das Icon des Servers, wie es ist</div>')
         if servers is None:
             return ('<div class="field wide"><div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                    'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                    'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
         rows = []
         for server in servers:
             server_id = escape(server['server_id'])
@@ -1062,7 +1056,7 @@ class WebInterface:
                                  for server_id, choice in value.items())
                 return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
                         f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
             domains = [entry.rsplit(':', 1)[0] for entry in (values or cfg.config)['address.domains']]
             rows = []
             for server in servers:
@@ -1095,7 +1089,7 @@ class WebInterface:
                                    f'<input type="hidden" name="{key}.text" value="{escape(choice)}">')
                 return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
                         f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
             rows = []
             for server in servers:
                 key = f'{name}.{escape(server["server_id"])}'
@@ -1151,7 +1145,7 @@ class WebInterface:
                                  for server_id in value)
                 return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
                         f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
-                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div></div>')
             checks = []
             for server in servers:
                 server_id = server['server_id']
