@@ -22,7 +22,7 @@ ALLOWED_SERVERS: list[str] = get('servers.allowed')
 STATUS_CHANNEL_ID: int = get('status.channel_id')
 STATUS_UPDATE_INTERVAL: int = max(get('status.update_interval'), 10)
 
-# Bot logo (web interface favicon and header, Unraid template icon)
+# Bot logo (embed author icon, web interface favicon and header, Unraid template icon)
 LOGO_URL = 'https://wimwamwom.de/Bilder/mc-bot.png'
 
 # Web interface
