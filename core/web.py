@@ -17,132 +17,143 @@ from core import config as cfg
 from core.constants import LOGO_URL
 from core.server import get_servers
 
-# Look of wimwamwom.de ("Karbon & Gold"): carbon ground, warm-white type, one gold accent,
-# structure through hairlines instead of boxes. Dark only, like the website.
+# Look of wimwamwom.de: dark ground, Space Grotesk with JetBrains Mono for small print,
+# tiles with a thin border and three accent colours that rotate over the tabs.
 FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
          '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
-         '&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">')
+         '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700'
+         '&family=JetBrains+Mono:wght@400;500&display=swap">')
+
+ACCENTS = ['#d4f25a', '#ff8a4c', '#b39cff']
 
 STYLE = """
-:root { --bg: #0a0a0a; --surface-2: #16130e; --surface-hover: #1a1712; --field: #191611;
-        --ink: #f2efe8; --muted: #a09b90; --muted-2: #79746a; --line: #282723; --line-strong: #47433b;
-        --accent: #d9a441; --accent-strong: #e6b455; --accent-ink: #141005; --accent-soft: #1f180b;
-        --good: #8fc177; --good-soft: #141a10; --bad: #d4655b; --bad-soft: #221211;
-        --sans: Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
-        --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; color-scheme: dark; }
-* { box-sizing: border-box; }
-html { font-size: 16px; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 var(--sans);
-       -webkit-font-smoothing: antialiased; }
-::selection { background: var(--accent); color: var(--accent-ink); }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-a { color: var(--ink); }
-.wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+:root { --bg: #111110; --surface: #1a1a18; --plate: #161615; --field: #111110; --line: #2c2c2a;
+        --line-strong: #4a4a46; --text: #f1f0ec; --muted: #a3a29c; --soft: #c4c3bd; --dim: #8f8e88;
+        --dark: #111110; --accent: #d4f25a; --good: #d4f25a; --bad: #ff6b5b; color-scheme: dark;
+        --sans: "Space Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.5 var(--sans); min-height: 100vh; }
+::selection { background: var(--accent); color: var(--dark); }
+:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.wrap { max-width: 1160px; margin: 0 auto; padding: 48px 24px 120px; display: flex; flex-direction: column; gap: 32px; }
 
-header { border-bottom: 1px solid var(--line); }
-.top { display: flex; align-items: center; gap: 14px; padding-top: 22px; padding-bottom: 18px; }
-.top img { width: 44px; height: 44px; }
-.top h1 { font: 600 28px/1.1 var(--serif); letter-spacing: -0.01em; margin: 0; }
-.top h1 span { color: var(--accent); }
-.top .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
-.pill { margin-left: auto; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
-        border: 1px solid var(--line-strong); padding: 4px 10px; font-size: 11px; font-weight: 700;
-        letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.pill::before { content: ""; width: 7px; height: 7px; background: var(--muted-2); }
-.pill.ok { color: var(--good); border-color: var(--good); }
-.pill.ok::before { background: var(--good); }
-.pill.err { color: var(--bad); border-color: var(--bad); }
-.pill.err::before { background: var(--bad); }
+header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 20px; }
+.brand { display: flex; align-items: center; gap: 20px; }
+.brand img { width: clamp(56px, 8vw, 88px); height: clamp(56px, 8vw, 88px); object-fit: contain; flex: none; }
+h1 { font-size: clamp(40px, 8vw, 96px); line-height: .92; letter-spacing: -.04em; font-weight: 700; }
+h1 span { color: #d4f25a; }
+header p { margin-top: 12px; font-size: 19px; color: var(--muted); }
+.count { font: 13px var(--mono); color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.count i { width: 8px; height: 8px; border-radius: 2px; background: var(--dim); }
+.count.ok i { background: #d4f25a; }
+.count.err i { background: var(--bad); }
 
-nav.tabs { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
-nav.tabs .wrap { display: flex; gap: 22px; overflow-x: auto; scrollbar-width: none; }
-nav.tabs .wrap::-webkit-scrollbar { display: none; }
-nav.tabs a { position: relative; flex: none; padding: 14px 2px; border-bottom: 2px solid transparent;
-             color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600;
-             letter-spacing: .04em; text-transform: uppercase; transition: color .15s, border-color .15s; }
-nav.tabs a:hover { color: var(--ink); }
-nav.tabs a.active { color: var(--ink); border-bottom-color: var(--accent); }
-nav.tabs a.has-error::after { content: ""; position: absolute; top: 12px; right: -8px;
-                              width: 6px; height: 6px; background: var(--bad); }
+nav.tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.content { display: flex; flex-direction: column; gap: 24px; width: 100%; }
+nav.tabs a { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+             padding: 14px 16px; white-space: nowrap; border: 1px solid var(--line); border-radius: 4px; background: var(--surface);
+             color: var(--text); text-decoration: none; font-weight: 600; font-size: 16px; letter-spacing: -.01em;
+             transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease, background .2s ease; }
+nav.tabs a .label { display: flex; align-items: center; gap: 8px; }
+nav.tabs a .dot { width: 8px; height: 8px; border-radius: 2px; background: var(--accent); flex: none; }
+nav.tabs a:hover { transform: translateY(-3px); box-shadow: 0 18px 44px rgba(0, 0, 0, .6); border-color: var(--accent); }
+nav.tabs a.active { background: var(--accent); border-color: var(--accent); color: var(--dark); }
+nav.tabs a.active .dot { background: var(--dark); }
+nav.tabs a.has-error::after { content: "!"; position: absolute; top: -8px; right: -8px; width: 20px; height: 20px;
+                              border-radius: 2px; background: var(--bad); color: var(--dark); font: 700 12px/20px var(--mono);
+                              text-align: center; }
 
-main { padding: 28px 0 120px; }
-.tab { display: none; }
-.tab.active { display: block; }
-.tab > h2 { font: 600 24px/1.2 var(--serif); margin: 0 0 6px; }
-.tab > .intro { color: var(--muted); margin: 0 0 28px; max-width: 640px; }
-.group { border-top: 1px solid var(--line); padding-top: 16px; margin-bottom: 34px; }
-.group h3 { display: flex; align-items: center; gap: 9px; margin: 0 0 18px; font: 700 11px/1 var(--sans);
-            letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
-.group h3::before { content: ""; width: 3px; height: 10px; background: var(--accent); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 28px; }
+.tab { display: none; flex-direction: column; gap: 16px; }
+.tab.active { display: flex; }
+.tab-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 8px 20px;
+            padding-bottom: 4px; }
+.tab-head h2 { font-size: clamp(28px, 4vw, 44px); line-height: 1; letter-spacing: -.03em; font-weight: 700; }
+.tab-head h2 span { color: var(--accent); }
+.tab-head p { color: var(--soft); font-size: 15px; }
+.tab-head .path { font: 12px var(--mono); color: var(--dim); }
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; align-items: start; }
+.group { border: 1px solid var(--line); border-radius: 4px; background: var(--surface); overflow: hidden; }
+.group h3 { display: flex; align-items: center; gap: 8px; padding: 14px 18px; background: var(--plate);
+            border-bottom: 1px solid var(--line); font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+.group h3::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 18px; padding: 18px; }
 .grid .wide { grid-column: 1 / -1; }
 
-.field { margin-bottom: 20px; transition: opacity .15s; }
+.field { margin-bottom: 18px; transition: opacity .15s; min-width: 0; }
+.grid > .field:last-child { margin-bottom: 0; }
 .field.off { opacity: .4; }
 label.name { display: block; font-weight: 600; font-size: 14px; margin-bottom: 6px; }
-.help { color: var(--muted); font-size: 13px; margin-top: 6px; max-width: 640px; }
+.help { color: var(--muted); font-size: 13px; line-height: 1.45; margin-top: 6px; }
 input[type=text], input[type=password], input[type=number], input[type=time], select, textarea {
-  width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 0;
-  background: var(--field); color: var(--ink); font: inherit; transition: border-color .15s; }
-input:hover, select:hover, textarea:hover { border-color: var(--muted-2); }
+  width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 2px;
+  background: var(--field); color: var(--text); font: 14px var(--mono); transition: border-color .2s ease; }
+input::placeholder { color: var(--dim); }
+input:hover, select:hover, textarea:hover { border-color: var(--dim); }
 input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
-textarea { min-height: 120px; font: 13px/1.5 var(--mono); resize: vertical; }
-select { appearance: none; padding-right: 32px; background-repeat: no-repeat; background-position: right 11px center;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a09b90' stroke-width='1.5'/%3E%3C/svg%3E"); }
+textarea { min-height: 120px; line-height: 1.5; resize: vertical; }
+select { appearance: none; padding-right: 34px; background-repeat: no-repeat; background-position: right 12px center;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a3a29c' stroke-width='1.5'/%3E%3C/svg%3E"); }
 input[type=time]::-webkit-calendar-picker-indicator { filter: invert(.7); }
 .field.invalid input, .field.invalid select { border-color: var(--bad); }
 
 .switch { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
-.switch input { appearance: none; flex: none; position: relative; width: 38px; height: 20px; margin: 1px 0 0;
-                border: 1px solid var(--line-strong); background: var(--field); cursor: pointer;
-                transition: background .15s, border-color .15s; }
-.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px;
-                       background: var(--muted); transition: transform .15s, background .15s; }
-.switch input:checked { background: var(--accent-soft); border-color: var(--accent); }
-.switch input:checked::after { transform: translateX(18px); background: var(--accent); }
-.switch b { font-weight: 600; font-size: 14px; }
+.switch input { appearance: none; flex: none; position: relative; width: 40px; height: 22px; margin-top: 1px;
+                border: 1px solid var(--line-strong); border-radius: 2px; background: var(--field); cursor: pointer;
+                transition: background .2s ease, border-color .2s ease; }
+.switch input::after { content: ""; position: absolute; top: 4px; left: 4px; width: 12px; height: 12px; border-radius: 2px;
+                       background: var(--dim); transition: transform .2s ease, background .2s ease; }
+.switch input:checked { background: var(--accent); border-color: var(--accent); }
+.switch input:checked::after { transform: translateX(18px); background: var(--dark); }
+.switch b { font-weight: 600; font-size: 15px; }
 .switch .help { margin-top: 2px; }
 
-.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; }
-.check { display: flex; gap: 10px; align-items: center; padding: 9px 11px; cursor: pointer;
-         border: 1px solid var(--line); background: var(--surface-2); transition: border-color .15s; }
-.check:hover { border-color: var(--line-strong); }
-.check input { appearance: none; flex: none; width: 16px; height: 16px; margin: 0; position: relative;
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.check { display: flex; gap: 10px; align-items: center; padding: 10px 12px; cursor: pointer; border-radius: 2px;
+         border: 1px solid var(--line-strong); background: var(--plate); transition: border-color .2s ease; }
+.check:hover { border-color: var(--accent); }
+.check input { appearance: none; flex: none; width: 16px; height: 16px; position: relative; border-radius: 2px;
                border: 1px solid var(--line-strong); background: var(--field); cursor: pointer; }
 .check input:checked { background: var(--accent); border-color: var(--accent); }
 .check input:checked::after { content: ""; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px;
-                              border: solid var(--accent-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+                              border: solid var(--dark); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .check:has(input:checked) { border-color: var(--accent); }
-.check.small { display: inline-flex; padding: 0; border: 0; background: none; margin-top: 8px;
-               font-size: 13px; color: var(--muted); }
+.check.small { display: inline-flex; padding: 0; border: 0; background: none; margin-top: 8px; font-size: 13px; color: var(--muted); }
 
-details { color: var(--muted); font-size: 13px; margin-top: 10px; border-left: 2px solid var(--line-strong);
-          padding: 2px 0 2px 12px; }
-details summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+details { font-size: 13px; color: var(--muted); margin-top: 10px; border: 1px solid var(--line); border-radius: 2px;
+          background: var(--plate); padding: 10px 12px; }
+details summary { cursor: pointer; font-weight: 600; color: var(--text); }
 details summary:hover { color: var(--accent); }
-details ul { margin: 8px 0 0; padding-left: 18px; }
-details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; color: var(--ink); }
+details ul { margin-top: 8px; padding-left: 18px; }
+details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; color: var(--text); }
 
-.notice { padding: 12px 16px; margin-bottom: 22px; border: 1px solid; font-size: 14px; }
-.notice.ok { background: var(--good-soft); color: var(--good); }
-.notice.err { background: var(--bad-soft); color: var(--bad); }
+.notice { padding: 14px 18px; border: 1px solid; border-radius: 4px; font-size: 14px; display: flex; gap: 10px; }
+.notice::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; flex: none; margin-top: 6px; }
+.notice.ok { color: #d4f25a; background: rgba(212, 242, 90, .07); }
+.notice.err { color: var(--bad); background: rgba(255, 107, 91, .07); }
 
-.savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(10, 10, 10, .92);
-           backdrop-filter: blur(6px); border-top: 1px solid var(--line); }
-.savebar .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; }
-.savebar small { color: var(--muted-2); font-size: 12px; }
-button { flex: none; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
-         padding: 10px 18px; font: 700 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase;
-         cursor: pointer; transition: background .15s, border-color .15s; }
-button:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(17, 17, 16, .9);
+           backdrop-filter: blur(8px); border-top: 1px solid var(--line); }
+.savebar .inner { max-width: 1160px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center;
+                  justify-content: space-between; gap: 16px; }
+.savebar small { font: 12px var(--mono); color: var(--dim); }
+button { flex: none; display: inline-flex; align-items: center; gap: 14px; border: 1px solid #d4f25a; border-radius: 4px;
+         background: #d4f25a; color: var(--dark); padding: 6px 6px 6px 18px; font: 700 15px var(--sans);
+         letter-spacing: -.01em; cursor: pointer; transition: transform .25s ease, box-shadow .25s ease; }
+button .go { width: 34px; height: 34px; border-radius: 2px; background: var(--dark); color: #d4f25a;
+             display: flex; align-items: center; justify-content: center; font-size: 16px; }
+button:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(0, 0, 0, .6); }
+footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font: 13px var(--mono);
+         color: var(--muted); border-top: 1px solid var(--line); padding-top: 20px; }
+footer a { color: inherit; text-decoration: none; }
+footer a:hover { color: var(--text); }
 @media (max-width: 560px) {
-  .top h1 { font-size: 23px; }
-  .top .sub { display: none; }
+  .wrap { padding: 32px 16px 110px; gap: 24px; }
+  .savebar .inner { padding: 12px 16px; }
   .savebar small { display: none; }
-  .savebar button { width: 100%; }
+  .savebar button { width: 100%; justify-content: space-between; }
+  nav.tabs { grid-template-columns: repeat(2, 1fr); }
 }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } nav.tabs a:hover, button:hover { transform: none; } }
 """
 
 SCRIPT = """<script>
@@ -154,7 +165,6 @@ function showTab(id) {
     var active = tab.dataset.tab === id;
     tab.classList.toggle('active', active);
     document.getElementById('tab-' + tab.dataset.tab).classList.toggle('active', active);
-    if (active) tab.scrollIntoView({block: 'nearest', inline: 'nearest'});
   });
 }
 tabs.forEach(function (tab) {
@@ -312,8 +322,8 @@ class WebInterface:
         print('Config saved via web interface, restarting')
         # give the browser time to receive the response before restarting
         asyncio.get_running_loop().call_later(1, self.on_saved)
-        return self._page('<main><div class="wrap"><div class="notice ok">Gespeichert. Der Bot startet neu, '
-                          'die Seite lädt in ein paar Sekunden neu.</div></div></main>',
+        return self._page('<div class="notice ok">Gespeichert. Der Bot startet neu, '
+                          'die Seite lädt in ein paar Sekunden neu.</div>',
                           head='<meta http-equiv="refresh" content="5;url=/">')
 
     async def render(self, errors: list[str] | None = None, values: dict | None = None,
@@ -340,7 +350,7 @@ class WebInterface:
 
         nav = []
         panels = []
-        for section, title in cfg.SECTIONS.items():
+        for index, (section, title) in enumerate(cfg.SECTIONS.items()):
             tab_label, intro, groups = TABS.get(section, (title, '', []))
             section_fields = [name for name, field in cfg.FIELDS_BY_NAME.items() if field.section == section]
             listed = {name for _, names in groups for name in names}
@@ -348,45 +358,52 @@ class WebInterface:
             groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME]) for group, names in groups]
             if leftover:
                 groups.append(('Weitere' if groups else title, leftover))
+            accent = f'style="--accent:{ACCENTS[index % len(ACCENTS)]}"'
 
             error_class = ' has-error' if invalid.intersection(section_fields) else ''
-            nav.append(f'<a href="#{section}" data-tab="{section}" class="{error_class.strip()}">'
-                       f'{escape(tab_label)}</a>')
+            nav.append(f'<a href="#{section}" data-tab="{section}" class="{error_class.strip()}" {accent}>'
+                       f'<span class="label"><i class="dot"></i>{escape(tab_label)}</span></a>')
 
-            html = [f'<div class="tab" id="tab-{section}"><h2>{escape(title)}</h2>']
+            html = [f'<section class="tab" id="tab-{section}" {accent}><div class="tab-head"><div>'
+                    f'<h2>{escape(title)}<span>.</span></h2>']
             if intro:
-                html.append(f'<p class="intro">{escape(intro)}</p>')
+                html.append(f'<p>{escape(intro)}</p>')
+            html.append(f'</div><span class="path">{len(groups)} {"Gruppe" if len(groups) == 1 else "Gruppen"} · '
+                        f'{len(section_fields)} {"Einstellung" if len(section_fields) == 1 else "Einstellungen"}'
+                        f'</span></div><div class="groups">')
             for group, names in groups:
                 html.append(f'<div class="group"><h3>{escape(group)}</h3><div class="grid">')
                 for name in names:
                     html.append(self._render_field(name, cfg.FIELDS_BY_NAME[name], values[name], guild, servers,
                                                    name in invalid))
                 html.append('</div></div>')
-            html.append('</div>')
+            html.append('</div></section>')
             panels.append(''.join(html))
 
         if not self.bot.is_ready():
-            state = '<span class="pill err">Offline</span>'
+            state = '<span class="count err"><i></i>Bot offline</span>'
         elif guild is None:
-            state = '<span class="pill">Kein Discord-Server</span>'
+            state = '<span class="count"><i></i>Kein Discord-Server</span>'
         else:
-            state = f'<span class="pill ok" title="{escape(guild.name)}">Online</span>'
+            state = f'<span class="count ok"><i></i>Online auf {escape(guild.name)}</span>'
 
-        body = (f'<nav class="tabs"><div class="wrap">{"".join(nav)}</div></nav>'
-                f'<form method="post"><main><div class="wrap">{"".join(notices)}{"".join(panels)}</div></main>'
-                f'<div class="savebar"><div class="wrap"><small>Speichert alle Tabs. Der Bot startet danach neu.</small>'
-                f'<button type="submit">Speichern und neu starten</button></div></div></form>')
+        body = (f'<nav class="tabs">{"".join(nav)}</nav>'
+                f'<form method="post" class="content">{"".join(notices)}{"".join(panels)}'
+                f'<div class="savebar"><div class="inner"><small>Speichert alle Bereiche, danach startet der Bot neu.</small>'
+                f'<button type="submit">Speichern und neu starten<span class="go" aria-hidden="true">→</span>'
+                f'</button></div></div></form>')
         return self._page(body, state=state)
 
     @staticmethod
     def _page(body: str, head: str = '', state: str = '') -> web.Response:
         html = (f'<!doctype html><html lang="de"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width, initial-scale=1">'
-                f'<meta name="color-scheme" content="dark"><meta name="theme-color" content="#0a0a0a">'
+                f'<meta name="color-scheme" content="dark"><meta name="theme-color" content="#111110">'
                 f'<title>Crafty Bot</title><link rel="icon" href="{LOGO_URL}">{FONTS}<style>{STYLE}</style>{head}</head>'
-                f'<body><header><div class="wrap top"><img src="{LOGO_URL}" alt="">'
-                f'<div><h1>Crafty Bot<span>.</span></h1><div class="sub">Einstellungen</div></div>{state}</div></header>'
-                f'{body}{SCRIPT}</body></html>')
+                f'<body><div class="wrap"><header><div class="brand"><img src="{LOGO_URL}" alt="">'
+                f'<div><h1>Crafty Bot<span>.</span></h1><p>Einstellungen</p></div></div>{state}</header>'
+                f'{body}<footer><span>Crafty Bot · Port {cfg.config["web.port"]}</span>'
+                f'<span>{escape(cfg.CONFIG_PATH)}</span></footer></div>{SCRIPT}</body></html>')
         return web.Response(text=html, content_type='text/html')
 
     @staticmethod
