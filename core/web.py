@@ -209,6 +209,9 @@ TABS = {
     'status': ('Status', 'Eine Nachricht mit allen Servern, die sich selbst aktualisiert.', [
         ('Statusübersicht', ['status.enabled', 'status.channel_id', 'status.update_interval']),
     ]),
+    'session': ('Server-Embeds', 'Eine Nachricht pro Serverstart, vom Backup bis zum Stopp.', [
+        ('Server-Embeds', ['session.enabled', 'session.channel_id']),
+    ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
         ('Zeitplan und Anzahl', ['backup.on_start', 'backup.daily', 'backup.weekly',
