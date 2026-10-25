@@ -138,6 +138,7 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-row .empty { color: var(--muted); font-style: italic; }
 .motd-row .k { filter: blur(3px); }
 .motd-row .actions { display: flex; gap: 4px; }
+.motd-row .mc-format.confirm { border-color: var(--bad); color: var(--bad); }
 .motd-editor { margin: 2px 0 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 2px;
                background: var(--plate); }
 .motd-editor[hidden] { display: none; }
@@ -400,6 +401,20 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
     if (!button || !row) return;
     var index = Number(row.dataset.index);
     if (button.dataset.act === 'delete') {
+      // the first click only asks, the second one deletes
+      if (!button.classList.contains('confirm')) {
+        list.querySelectorAll('.confirm').forEach(function (other) {
+          other.classList.remove('confirm');
+          other.textContent = 'Löschen';
+        });
+        button.classList.add('confirm');
+        button.textContent = 'Wirklich löschen?';
+        setTimeout(function () {
+          button.classList.remove('confirm');
+          button.textContent = 'Löschen';
+        }, 4000);
+        return;
+      }
       messages.splice(index, 1);
       if (editing === index) editing = -1;
       else if (editing > index) editing--;
