@@ -31,23 +31,6 @@ def _player_text(stats: dict) -> str:
     return text
 
 
-def server_list_embed(servers: list[dict]) -> discord.Embed:
-    """
-    Build an embed with all servers and their ID, IP and port.
-    """
-    embed = discord.Embed(title='Servers', color=discord.Color.blurple())
-    for server in servers[:25]:
-        embed.add_field(
-            name=server.get('server_name', '-'),
-            value=(f"ID: `{server.get('server_id', '-')}`\n"
-                   f"Address: `{server.get('server_ip', 'unknown')}:{server.get('server_port', 'unknown')}`"),
-            inline=False,
-        )
-    if not servers:
-        embed.description = 'No servers found'
-    return embed
-
-
 def server_stats_embed(server_name: str, stats: dict) -> discord.Embed:
     """
     Build an embed with the stats of one server.

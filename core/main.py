@@ -11,7 +11,6 @@ import traceback
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
-from discord.ext.commands import is_owner
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -19,12 +18,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
-from core.helper import check_config, check_server_id, get_server_list, get_cached_servers, get_server_name
+from core.helper import check_config, check_server_id, get_server_list, get_cached_servers
 from core.server import is_server_running, stop_server, get_player_count, get_server_stats, server_action
-from core.embeds import server_list_embed, server_stats_embed
+from core.embeds import status_embed
 from core.status import StatusBoard
 from core.checks import command_channel_check, control_role
-from core.custom_help_command import CustomHelpCommand
+from core.views import ServerStatsView
 from core.web import WebInterface
 from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, GUILD_ID, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
@@ -55,7 +54,7 @@ class CraftyBot(commands.Bot):
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = CraftyBot(command_prefix='>', intents=intents, help_command=CustomHelpCommand())
+bot = CraftyBot(command_prefix='>', intents=intents, help_command=None)
 bot.add_check(command_channel_check)
 
 status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
@@ -129,45 +128,37 @@ async def on_ready():
     print("GUILD ID: {}".format(GUILD_ID))
 
 
-@bot.hybrid_command(name='sync', description='Sync slash commands')
+@bot.hybrid_command(name='help', description='list all commands')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
-@is_owner()
-async def sync(ctx) -> None:
-    print('sync')
-    synced = await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
-    await ctx.reply("{} commands synced".format(len(synced)), ephemeral=True)
+async def help_command(ctx):
+    embed = discord.Embed(title='Commands', color=discord.Color.blurple())
+    for command in sorted(bot.commands, key=lambda c: c.name):
+        embed.add_field(name=f'/{command.name}', value=command.description or '-', inline=False)
+    await ctx.reply(embed=embed, ephemeral=True)
 
 
-@bot.hybrid_command(name='list', description='get server list')
-@app_commands.guilds(discord.Object(id=GUILD_ID))  # get the list of servers
-async def get_list(ctx):
-    print('servers')
+# show the status of all servers with a dropdown to get the stats of one server
+@bot.hybrid_command(name='stats', description='get server stats')
+@app_commands.guilds(discord.Object(id=GUILD_ID))
+async def stats(ctx):
+    print('stats')
     await ctx.defer(ephemeral=True)
     servers = await get_cached_servers()
     if servers is None:
         await ctx.reply('failed to get server list', ephemeral=True)
         return
-
-    await ctx.reply(embed=server_list_embed(servers), ephemeral=True)
-
-
-# get statistics of a server
-@bot.hybrid_command(name='stats', description='get server stats')
-@app_commands.guilds(discord.Object(id=GUILD_ID))
-@app_commands.autocomplete(server_id=get_server_list)
-async def stats(ctx, server_id):
-    print('stats')
-
-    if not await check_server_id(server_id, ctx):
+    if not servers:
+        await ctx.reply('No servers found', ephemeral=True)
         return
 
-    await ctx.defer(ephemeral=True)
-    data = await get_server_stats(server_id)
-    if data is None:
-        await ctx.reply('failed to get server stats', ephemeral=True)
-        return
+    server_stats = await asyncio.gather(*(get_server_stats(server['server_id']) for server in servers))
+    embed = status_embed(list(zip(servers, server_stats)))
+    # the footer marks the status board message, so this one must not have it
+    embed.remove_footer()
+    embed.description = 'Choose a server below to see its details'
 
-    await ctx.reply(embed=server_stats_embed(await get_server_name(server_id), data), ephemeral=True)
+    view = ServerStatsView(servers, ctx.author.id)
+    view.message = await ctx.reply(embed=embed, view=view, ephemeral=True)
 
 
 # start a server
@@ -271,10 +262,10 @@ async def on_command_error(ctx, error):
         error = error.original
 
     if isinstance(error, commands.CommandNotFound):
-        await ctx.send('Command not found. Use `>help` to get a list of available commands.')
+        await ctx.send('Command not found. Use `/help` to get a list of available commands.')
         print(error)
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send('Missing required argument. Use `>help` to get a list of available commands.')
+        await ctx.send('Missing required argument. Use `/help` to get a list of available commands.')
         print(error)
     elif isinstance(error, commands.NotOwner):
         await ctx.reply('Only the bot owner can use this command', ephemeral=True)

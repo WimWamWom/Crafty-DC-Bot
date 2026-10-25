@@ -5,7 +5,7 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 
 ## Features
 
-- Server list and server status as embeds, including the names of online players
+- Server status as an embed with a dropdown for every server, including the names of online players
 - Start, stop and restart servers (stop and restart only when nobody is online)
 - Self-updating status board with all servers in one channel
 - Auto stop for empty servers
@@ -15,18 +15,16 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 
 ## Commands
 
-All commands work as slash commands (`/stats`) and with the `>` prefix (`>stats <server_id>`).
-Slash commands are synced automatically on startup. With slash commands, the server can be picked from a list.
+All commands are slash commands and are synced automatically when the bot starts.
+They also work with the `>` prefix (`>stats`).
 
 | Command | Description |
 |---|---|
-| `/list` | List all servers with ID, IP and port |
-| `/stats <server>` | Status, players, version, CPU and RAM of a server |
+| `/stats` | Status of all servers, with a dropdown to show players, version, CPU and RAM of one server |
 | `/start <server>` | Start a server (control role) |
 | `/stop <server>` | Stop a server if no players are online (control role) |
 | `/restart <server>` | Restart a server if no players are online (control role) |
-| `/sync` | Sync slash commands again (bot owner only) |
-| `>help` | List all commands |
+| `/help` | List all commands |
 
 The bot owner can use all commands in every channel, regardless of the channel and role settings.
 
