@@ -51,6 +51,8 @@ class BackupState:
             pass
         except (OSError, ValueError) as e:
             print(f'backup: could not read {STATE_PATH}: {e}')
+        # servers never seen online count as inactive since the bot started tracking them
+        self.data.setdefault('tracking_since', time.time())
 
     def save(self) -> None:
         try:
@@ -69,6 +71,10 @@ class BackupState:
 
     def mark_backup(self, server_id: str, kind: str, timestamp: float) -> None:
         self._server(server_id)['last_backup'][kind] = timestamp
+
+    def inactive_days(self, server_id: str) -> float:
+        last_online = self._server(server_id)['last_online'] or self.data['tracking_since']
+        return (time.time() - last_online) / 86400
 
     def was_online_since_backup(self, server_id: str, kind: str) -> bool:
         """
@@ -177,15 +183,6 @@ async def sync_server(server_id: str) -> dict[str, str]:
     return ids
 
 
-async def sync_all() -> None:
-    servers = await get_servers()
-    if servers is None:
-        print('backup: failed to get server list')
-        return
-    for server in servers:
-        await sync_server(server['server_id'])
-
-
 def _websocket_url(server_id: str) -> str:
     url = urlparse(get('crafty.url').rstrip('/'))
     scheme = 'wss' if url.scheme == 'https' else 'ws'
@@ -267,8 +264,63 @@ async def run_backup(server_id: str, kind: str, timeout: float) -> bool:
     return True
 
 
+def is_excluded(server_id: str) -> bool:
+    return server_id in get('backup.excluded_servers')
+
+
 def needs_start_backup(server_id: str) -> bool:
-    return get('backup.enabled') and get('backup.on_start') > 0 and state.was_online_since_backup(server_id, 'start')
+    return (get('backup.enabled') and get('backup.on_start') > 0 and not is_excluded(server_id)
+            and state.was_online_since_backup(server_id, 'start'))
+
+
+async def delete_bot_backups(server_id: str) -> int:
+    """
+    Delete all backup files of the configurations managed by the bot. Other backups are not touched.
+
+    Returns:
+        int: The number of deleted files.
+    """
+    path = f'{API_ENDPOINT}{server_id}/backups'
+    status, configs = await _request(path)
+    if status != 200:
+        print(f'backup: failed to get backup configs of {server_id} ({status})')
+        return 0
+
+    bot_names = {name for name, _ in KINDS.values()}
+    deleted = 0
+    async with backup_lock:
+        for conf in configs.values():
+            if not isinstance(conf, dict) or conf.get('backup_name') not in bot_names:
+                continue
+            files_path = f'{path}/backup/{conf["backup_id"]}/files'
+            status, files = await _request(files_path)
+            if status != 200:
+                continue
+            for file in files.get('backups', []):
+                # Crafty lists full paths but expects the file name
+                filename = os.path.basename(str(file).replace('\\', '/'))
+                status, _ = await _request(files_path, HttpMethod.DELETE, {'filename': filename})
+                if status == 200:
+                    deleted += 1
+                else:
+                    print(f'backup: failed to delete {filename} of {server_id} ({status})')
+    if deleted:
+        print(f'backup: deleted {deleted} bot backups of {server_id}')
+    return deleted
+
+
+async def maintain_server(server_id: str) -> None:
+    """
+    Keep the configurations of one server up to date and delete backups that are no longer needed.
+    """
+    if is_excluded(server_id):
+        if get('backup.delete_excluded'):
+            await delete_bot_backups(server_id)
+        return
+    await sync_server(server_id)
+    days = get('backup.delete_after_days')
+    if days > 0 and state.inactive_days(server_id) >= days:
+        await delete_bot_backups(server_id)
 
 
 async def backup_before_start(server_id: str) -> bool:
@@ -334,6 +386,8 @@ async def run_due_backups(servers: list[dict]) -> None:
         print(f'backup: running {kind} backups')
         for server in servers:
             server_id = server['server_id']
+            if is_excluded(server_id):
+                continue
             if state.was_online_since_backup(server_id, kind):
                 await run_backup(server_id, kind, SCHEDULED_TIMEOUT)
             else:
@@ -344,8 +398,8 @@ async def run_due_backups(servers: list[dict]) -> None:
 
 class BackupScheduler:
     """
-    Called once a minute: records which servers are online, keeps the Crafty configurations up to date
-    and runs the scheduled backups.
+    Called once a minute: records which servers are online, keeps the Crafty configurations up to date,
+    deletes backups that are no longer needed and runs the scheduled backups.
     """
 
     def __init__(self):
@@ -360,7 +414,7 @@ class BackupScheduler:
             await record_activity(servers)
             if time.time() - self.last_sync >= SYNC_INTERVAL:
                 for server in servers:
-                    await sync_server(server['server_id'])
+                    await maintain_server(server['server_id'])
                 self.last_sync = time.time()
             await run_due_backups(servers)
         except Exception:

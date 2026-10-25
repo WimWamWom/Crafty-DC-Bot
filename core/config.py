@@ -72,6 +72,16 @@ FIELDS = [
           'Der Bot legt bei jedem verfügbaren Server die Backup-Konfigurationen „Bot Start“, „Bot Täglich“ '
           'und „Bot Wöchentlich“ in Crafty an und hält sie aktuell. Backups werden nur erstellt, '
           'wenn der Server seit dem letzten Backup dieser Art online war'),
+    Field('backup', 'excluded_servers', 'servers', [], None, 'Server ohne Backups',
+          'Für diese Server erstellt der Bot keine Backups. Ihre bisherigen Bot-Backups bleiben, '
+          'außer die Option darunter ist an'),
+    Field('backup', 'delete_excluded', 'bool', False, None, 'Bot-Backups dieser Server löschen',
+          'Löscht alle Backups von „Bot Start“, „Bot Täglich“ und „Bot Wöchentlich“ der Server oben. '
+          'Die Welt selbst und Backups, die du in Crafty angelegt hast, bleiben. Kann nicht rückgängig gemacht werden'),
+    Field('backup', 'delete_after_days', 'int', 0, None, 'Bot-Backups inaktiver Server löschen nach (Tagen)',
+          'War ein Server so viele Tage nicht online, löscht der Bot alle seine Bot-Backups, '
+          'weil nur noch die aktuelle Welt gebraucht wird. Beim nächsten Start gibt es wieder ein Backup. '
+          'Die Welt selbst und Backups, die du in Crafty angelegt hast, bleiben. 0 = aus'),
     Field('backup', 'on_start', 'int', 5, None, 'Backups vor dem Start (Anzahl)',
           'Vor /start wird ein Backup erstellt, der Server startet erst danach. '
           'So viele werden behalten, ältere löscht Crafty. 0 = aus'),
