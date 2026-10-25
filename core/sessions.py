@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 import discord
 
+from core.address import display_address
 from core.embeds import COLOR_OFFLINE, COLOR_ONLINE, MAX_FIELD_LENGTH, add_usage_fields, new_embed, player_text
 from core.server import get_server_stats, get_servers
 
@@ -43,10 +44,6 @@ class Session:
     note: str = ''
     stats: dict | None = None
     message: discord.Message | None = None
-
-
-def _address(server: dict) -> str:
-    return f"{server.get('server_ip', '?')}:{server.get('server_port', '?')}"
 
 
 def _duration(seconds: float) -> str:
@@ -156,16 +153,19 @@ class SessionTracker:
         Start a session for /start and post its message.
         """
         async with self.lock:
-            session = Session(server['server_id'], server['server_name'], _address(server), started_by=started_by,
-                              phase=BACKUP if backup else STARTING)
+            session = Session(server['server_id'], server['server_name'], display_address(server),
+                              started_by=started_by, phase=BACKUP if backup else STARTING)
             self.sessions[session.server_id] = session
             if self.channel_id:
                 channel, reference = None, None
             await self._show(session, channel, reference)
             return session
 
-    async def update(self, session: Session, phase: str | None = None, note: str | None = None) -> None:
+    async def update(self, session: Session, phase: str | None = None, note: str | None = None,
+                     address: str | None = None) -> None:
         async with self.lock:
+            if address is not None:
+                session.address = address
             if phase is not None:
                 session.phase = phase
                 session.requested_at = time.time()
@@ -226,8 +226,8 @@ class SessionTracker:
                                if f.name == 'Online since' and f.value.startswith('<t:')), None)
             started_by = next((f.value for f in embed.fields if f.name == 'Started by'), None)
             self.sessions[server_id] = Session(server_id, names[server_id]['server_name'],
-                                               _address(names[server_id]), started_by=started_by, phase=RUNNING,
-                                               started_at=started_at or time.time(), message=message)
+                                               display_address(names[server_id]), started_by=started_by,
+                                               phase=RUNNING, started_at=started_at or time.time(), message=message)
 
     async def tick(self) -> None:
         servers = await get_servers()
@@ -250,7 +250,7 @@ class SessionTracker:
                 if session is None:
                     if running:
                         # started outside the bot, e.g. in Crafty, or before the bot started
-                        session = Session(server_id, server['server_name'], _address(server), phase=RUNNING,
+                        session = Session(server_id, server['server_name'], display_address(server), phase=RUNNING,
                                           started_at=time.time(), stats=server_stats)
                         self.sessions[server_id] = session
                         await self._show(session)

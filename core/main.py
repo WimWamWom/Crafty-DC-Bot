@@ -30,6 +30,7 @@ from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
 from core.motd import set_random_motd
+from core.address import has_free_domain, prepare_start
 from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_IDLE_TIME, BACKUP_ENABLED, GUILD_ID, SESSION_CHANNEL_ID,
                             SESSION_ENABLED, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
@@ -230,6 +231,13 @@ async def start(ctx, server_id):
         await ctx.reply('Server already running', ephemeral=True)
         return
 
+    # check before the backup, prepare_start checks again and takes the domain
+    free = await has_free_domain(server_id)
+    if not free:
+        await ctx.reply('failed to check which domains are free' if free is None
+                        else 'All domains are in use, stop a server first', ephemeral=True)
+        return
+
     backup = needs_start_backup(server_id)
     session = None
     if sessions is not None:
@@ -252,7 +260,15 @@ async def start(ctx, server_id):
         elif not backup_ok:
             await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
 
-    await set_random_motd(server_id)
+    domain, error = await prepare_start(server_id)
+    if error is not None:
+        if session is not None:
+            await sessions.fail(session, error)
+        await ctx.reply(f'failed to start server: {error}', ephemeral=True)
+        return
+    if domain is not None and session is not None:
+        await sessions.update(session, address=domain)
+
     if await server_action(server_id, 'start_server'):
         mark_started(server_id)
         if session is None:

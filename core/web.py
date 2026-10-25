@@ -275,6 +275,10 @@ TABS = {
     'session': ('Start & Stopp', 'Eine Nachricht pro Serverstart, vom Backup bis zum Stopp.', [
         ('Start- und Stopp-Nachrichten', ['session.enabled', 'session.channel_id']),
     ]),
+    'address': ('Domains', 'Welche Domain ein Server bekommt und im Start-Embed zeigt.', [
+        ('Domains', ['address.enabled', 'address.domains']),
+        ('Ausnahmen', ['address.excluded_servers']),
+    ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
         ('Zeitplan und Anzahl', ['backup.on_start', 'backup.daily', 'backup.weekly',
@@ -296,7 +300,7 @@ TABS = {
 MOTD_PREVIEW = ('motd.messages',)
 
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list', 'lines')
+WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains')
 
 
 class WebInterface:
@@ -526,7 +530,7 @@ class WebInterface:
             return (f'{open_tag}{label}<select id="{name}" name="{name}">'
                     f'{"".join(html_options)}</select>{help_text}</div>')
 
-        if field.kind in ('list', 'lines'):
+        if field.kind in ('list', 'lines', 'domains'):
             preview = ''
             if name in MOTD_PREVIEW:
                 preview = f'<div class="motd-preview" data-for="{name}"></div>'

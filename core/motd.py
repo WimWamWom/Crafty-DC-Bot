@@ -5,20 +5,16 @@ The server reads server.properties when it starts, so a new MOTD is chosen befor
 by the bot and after every stop the bot sees, which also covers the next start from Crafty.
 """
 
-import asyncio
 import random
 import re
 
 from core.config import get
-from core.constants import API_ENDPOINT
-from core.network import HttpMethod, get_json_response, is_response_successful, send_request
+from core.properties import get_property, read_properties, set_property, write_properties
 
 MOTD_ENABLED: bool = get('motd.enabled')
 MOTD_MESSAGES: list[str] = get('motd.messages')
 MOTD_EXCLUDED: list[str] = get('motd.excluded_servers')
 
-PROPERTIES = 'server.properties'
-MOTD_LINE = re.compile(r'\s*motd\s*[=:]')
 # &a, &l, ... as an easier way to type § color codes
 COLOR_CODE = re.compile(r'&([0-9a-fk-orA-FK-OR])')
 
@@ -42,14 +38,7 @@ def replace_motd(properties: str, value: str) -> str:
     """
     Replace the motd line of a server.properties file, or add one if it has none.
     """
-    lines = properties.split('\n')
-    for index, line in enumerate(lines):
-        if MOTD_LINE.match(line):
-            lines[index] = f'motd={value}' + ('\r' if line.endswith('\r') else '')
-            return '\n'.join(lines)
-    if properties and not properties.endswith('\n'):
-        properties += '\n'
-    return properties + f'motd={value}\n'
+    return set_property(properties, 'motd', value)
 
 
 def decode(value: str) -> str:
@@ -61,17 +50,18 @@ def decode(value: str) -> str:
 
 
 def current_motd(properties: str) -> str | None:
-    match = re.search(r'^\s*motd\s*[=:]\s*(.*)$', properties, re.MULTILINE)
-    return decode(match[1].rstrip('\r')) if match else None
+    value = get_property(properties, 'motd')
+    return None if value is None else decode(value)
 
 
-async def _properties_path(server_id: str) -> str | None:
-    data = await get_json_response(API_ENDPOINT + server_id, 'motd: failed to get server data')
-    path = (data.get('data') or {}).get('path')
-    if not path:
-        return None
-    # Crafty runs on Linux in Docker, older versions only accept absolute paths
-    return path.rstrip('/\\') + '/' + PROPERTIES
+def apply_random_motd(properties: str) -> str:
+    """
+    Put a random MOTD from the list into the content of a server.properties file.
+    """
+    # pick a different one than now if possible
+    current = current_motd(properties)
+    choices = [message for message in MOTD_MESSAGES if decode(encode(message)) != current] or MOTD_MESSAGES
+    return replace_motd(properties, encode(random.choice(choices)))
 
 
 async def set_random_motd(server_id: str) -> None:
@@ -82,31 +72,11 @@ async def set_random_motd(server_id: str) -> None:
     if not is_active(server_id):
         return
     try:
-        path = await _properties_path(server_id)
-        if path is None:
+        read = await read_properties(server_id)
+        if read is None:
             return
-        data = await get_json_response(API_ENDPOINT + server_id + '/files', f'motd: failed to read {PROPERTIES}',
-                                       method=HttpMethod.POST, data={'path': path})
-        properties = (data.get('data') or {}).get('content')
-        if properties is None:
-            return
-
-        # pick a different one than now if possible
-        current = current_motd(properties)
-        choices = [message for message in MOTD_MESSAGES if decode(encode(message)) != current] or MOTD_MESSAGES
-        new_properties = replace_motd(properties, encode(random.choice(choices)))
-
-        # overwrite skips the check for changes since reading, which older Crafty versions do not know
-        url = API_ENDPOINT + server_id + '/files'
-        response = await asyncio.to_thread(send_request, url, method=HttpMethod.PATCH,
-                                           data={'path': path, 'contents': new_properties, 'overwrite': True})
-        if response.status_code == 400:
-            response = await asyncio.to_thread(send_request, url, method=HttpMethod.PATCH,
-                                               data={'path': path, 'contents': new_properties})
-        if is_response_successful(response):
+        path, properties = read
+        if await write_properties(server_id, path, apply_random_motd(properties)):
             print(f'motd: new MOTD for {server_id}')
-        else:
-            print(f'motd: failed to write {PROPERTIES} of {server_id} ({response.status_code}), '
-                  f'does the API token have the FILES permission?')
     except Exception as e:
         print(f'motd: failed for {server_id}: {e}')

@@ -38,6 +38,8 @@ The bot owner can use all commands in every channel, regardless of the channel a
 
 Create a user for the bot in Crafty (gear icon → add user), then open the user, go to "API Key" and create a token
 with the permissions `COMMANDS`, `TERMINAL`, `PLAYERS`, `BACKUP` (for automatic backups) and `FILES` (for the random MOTD).
+For automatic domains the token must be from a superuser and also have `CONFIG`, because only superusers may change
+the port of a server in Crafty.
 
 ### Discord bot
 
@@ -110,6 +112,12 @@ The random MOTD (`motd.*`: on/off, the messages, excluded servers) is also only 
 restart by the bot and after every stop it sees, the bot writes a random message from the list as `motd` into
 `server.properties`. It changes once per server start, not on every refresh of the server list.
 Use `&a`, `&l` and so on for colors and formatting and `\n` for a second line.
+
+Domains (`address.*`) are set there too. List them as `domain:port`, each pointing to its port with a Minecraft SRV
+record (e.g. `_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de`). A server running on one of these ports
+shows the domain instead of IP:port in its start embed. With automatic domains on, the bot sets the port of a server
+to the port of the first domain no other running server uses before every `/start`, in `server.properties` and in
+Crafty. When all domains are in use, `/start` is refused, so the list also limits how many servers run at once.
 
 ## License
 
