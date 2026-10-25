@@ -117,7 +117,8 @@ restart by the bot and after every stop it sees, the bot writes a random message
 Under "MOTD pro Server" a server can instead get a fixed MOTD that it always shows, or keep its MOTD untouched.
 Use `&a`, `&l` and so on for colors and formatting and `\n` for a second line.
 
-Server icons are uploaded per server in the MOTD tab. Every picture is cut to a square and stored as a 64x64 PNG
+Server icons are set per server in the "MOTD & Icon" tab, next to the MOTD of each server. It shows the icon the
+server uses now (downloaded from Crafty) until you upload your own. Every picture is cut to a square and stored as a 64x64 PNG
 (the only size Minecraft shows) in `icons/` next to `config.yaml`. The bot writes it as `server-icon.png` into the
 server folder right after the upload and before every start, restart and after every stop it sees.
 
