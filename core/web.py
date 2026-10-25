@@ -44,9 +44,21 @@ input[type=text], input[type=password], input[type=number], select {
 .notice { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); }
 .notice.err { background: var(--err-bg); color: var(--err); }
+.field.off { opacity: .45; }
 button { background: var(--accent); color: #fff; border: 0; border-radius: 6px;
          padding: 10px 20px; font: inherit; font-weight: 600; cursor: pointer; }
 """
+
+# Dim settings whose on/off switch is off. The value is still submitted, so it is kept for later.
+SCRIPT = """<script>
+document.querySelectorAll('[data-toggled-by]').forEach(function (field) {
+  var toggle = document.getElementById(field.dataset.toggledBy);
+  if (!toggle) return;
+  var update = function () { field.classList.toggle('off', !toggle.checked); };
+  toggle.addEventListener('change', update);
+  update();
+});
+</script>"""
 
 
 class WebInterface:
@@ -125,6 +137,7 @@ class WebInterface:
                     errors.append(f'{field.label}: ungültiger Wert')
 
         errors += [f'{label} fehlt' for label in cfg.missing_required(values)]
+        errors += [f'{label}: bitte auswählen oder den Schalter ausschalten' for label in cfg.missing_toggled(values)]
         if errors:
             return await self.render(errors=errors, values=values)
 
@@ -175,18 +188,20 @@ class WebInterface:
         html = (f'<!doctype html><html lang="de"><head><meta charset="utf-8">'
                 f'<meta name="viewport" content="width=device-width, initial-scale=1">'
                 f'<title>Crafty Bot</title><style>{STYLE}</style>{head}</head><body><main>'
-                f'<h1>Crafty Bot</h1><p class="sub">Einstellungen</p>{body}</main></body></html>')
+                f'<h1>Crafty Bot</h1><p class="sub">Einstellungen</p>{body}</main>{SCRIPT}</body></html>')
         return web.Response(text=html, content_type='text/html')
 
     @staticmethod
     def _render_field(name: str, field: cfg.Field, value, guild: discord.Guild | None,
                       servers: list[dict] | None) -> str:
         label = f'<label class="name" for="{name}">{escape(field.label)}</label>'
+        # lets the page dim the setting while its switch is off
+        toggled_by = f' data-toggled-by="{cfg.TOGGLED_BY[name]}"' if name in cfg.TOGGLED_BY else ''
         help_text = f'<div class="help">{escape(field.help)}</div>'
 
         if field.kind == 'bool':
             checked = ' checked' if value else ''
-            return (f'<div class="field"><label class="check"><input type="checkbox" name="{name}"{checked}>'
+            return (f'<div class="field"><label class="check"><input type="checkbox" id="{name}" name="{name}"{checked}>'
                     f'<b>{escape(field.label)}</b></label>{help_text}</div>')
 
         if field.kind == 'secret':
@@ -203,13 +218,14 @@ class WebInterface:
                 options = [(channel.id, f'#{channel.name}') for channel in guild.text_channels]
             else:
                 options = [(role.id, f'@{role.name}') for role in reversed(guild.roles) if not role.is_default()]
-            html_options = ['<option value="0">— keine Einschränkung —</option>']
+            html_options = ['<option value="0">— bitte wählen —</option>']
             if value and value not in [option_id for option_id, _ in options]:
                 html_options.append(f'<option value="{value}" selected>Unbekannt ({value})</option>')
             for option_id, option_name in options:
                 selected = ' selected' if option_id == value else ''
                 html_options.append(f'<option value="{option_id}"{selected}>{escape(option_name)}</option>')
-            return f'<div class="field">{label}<select id="{name}" name="{name}">{"".join(html_options)}</select>{help_text}</div>'
+            return (f'<div class="field"{toggled_by}>{label}<select id="{name}" name="{name}">'
+                    f'{"".join(html_options)}</select>{help_text}</div>')
 
         if field.kind == 'servers':
             marker = f'<input type="hidden" name="{name}.present" value="1">'
@@ -233,5 +249,5 @@ class WebInterface:
         # Discord IDs are too large for number inputs
         input_type = 'number' if field.kind == 'int' else 'text'
         mode = ' inputmode="numeric"' if field.kind in ('channel', 'role') else ''
-        return (f'<div class="field">{label}<input type="{input_type}"{mode} id="{name}" name="{name}" '
+        return (f'<div class="field"{toggled_by}>{label}<input type="{input_type}"{mode} id="{name}" name="{name}" '
                 f'value="{escape(str(value))}">{help_text}</div>')

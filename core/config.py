@@ -49,18 +49,24 @@ FIELDS = [
           'Token aus dem Discord Developer Portal', required=True),
     Field('discord', 'guild_id', 'int', 0, 'GUILD_ID', 'Discord-Server-ID',
           'ID deines Discord-Servers (Guild). Ohne sie gibt es keine Slash-Commands'),
+    Field('discord', 'command_channel_enabled', 'bool', False, 'COMMAND_CHANNEL_ENABLED',
+          'Befehle nur in einem Kanal', 'Aus = der Bot reagiert in allen Kanälen'),
     Field('discord', 'command_channel_id', 'channel', 0, 'COMMAND_CHANNEL_ID', 'Befehlskanal',
-          'Nur in diesem Kanal reagiert der Bot auf Befehle. 0 = alle Kanäle'),
+          'Nur in diesem Kanal reagiert der Bot auf Befehle'),
+    Field('discord', 'control_role_enabled', 'bool', False, 'CONTROL_ROLE_ENABLED',
+          'Steuern nur mit Rolle', 'Aus = jeder darf Server starten, stoppen und neu starten'),
     Field('discord', 'control_role_id', 'role', 0, 'CONTROL_ROLE_ID', 'Steuer-Rolle',
-          'Nur diese Rolle darf Server starten, stoppen und neu starten. 0 = alle'),
+          'Nur diese Rolle darf Server starten, stoppen und neu starten'),
     Field('servers', 'allowed', 'servers', [], 'ALLOWED_SERVERS', 'Verfügbare Server',
           'Server-IDs, die im Bot auswählbar sind (auch für Status und Auto-Stop). Leer = alle'),
     Field('auto_stop', 'enabled', 'bool', False, 'ENABLE_AUTO_STOP_SERVER', 'Auto-Stop aktiv',
           'Leere Server automatisch stoppen'),
     Field('auto_stop', 'interval', 'int', 1800, 'AUTO_STOP_SLEEP_TIME', 'Prüfintervall (Sekunden)',
           'Ein Server wird nach zwei Prüfungen ohne Spieler in Folge gestoppt'),
+    Field('status', 'enabled', 'bool', False, 'STATUS_ENABLED', 'Statusübersicht aktiv',
+          'Statusübersicht im Status-Kanal anzeigen'),
     Field('status', 'channel_id', 'channel', 0, 'STATUS_CHANNEL_ID', 'Status-Kanal',
-          'Kanal mit der Statusübersicht, die sich selbst aktualisiert. 0 = aus'),
+          'Kanal mit der Statusübersicht, die sich selbst aktualisiert'),
     Field('status', 'update_interval', 'int', 60, 'STATUS_UPDATE_INTERVAL', 'Aktualisierung (Sekunden)',
           'Wie oft die Statusübersicht aktualisiert wird'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
@@ -70,6 +76,14 @@ FIELDS = [
 ]
 
 FIELDS_BY_NAME = {f'{field.section}.{field.key}': field for field in FIELDS}
+
+# On/off switches and the setting they enable. The selected ID is kept while switched off.
+TOGGLES = {
+    'discord.command_channel_enabled': 'discord.command_channel_id',
+    'discord.control_role_enabled': 'discord.control_role_id',
+    'status.enabled': 'status.channel_id',
+}
+TOGGLED_BY = {target: toggle for toggle, target in TOGGLES.items()}
 
 
 def parse_value(field: Field, raw):
@@ -121,7 +135,7 @@ def load() -> dict:
             file_data = yaml.safe_load(file) or {}
 
     values = {}
-    complete = True
+    missing = []
     for name, field in FIELDS_BY_NAME.items():
         section = file_data.get(field.section) or {}
         if field.key in section:
@@ -130,10 +144,15 @@ def load() -> dict:
                 continue
             except ValueError:
                 print(f'Invalid value for {name} in {CONFIG_PATH}, using default')
-        complete = False
+        missing.append(name)
         values[name] = _from_env(field)
 
-    if not complete:
+    # Older configs have no switches: switch on what already has an ID
+    for toggle, target in TOGGLES.items():
+        if toggle in missing and not os.environ.get(FIELDS_BY_NAME[toggle].env):
+            values[toggle] = bool(values[target])
+
+    if missing:
         try:
             save(values)
             print(f'Config written to {CONFIG_PATH}')
@@ -176,6 +195,21 @@ def missing_required(values: dict) -> list[str]:
     Return the labels of required fields that are not set.
     """
     return [field.label for name, field in FIELDS_BY_NAME.items() if field.required and not values[name]]
+
+
+def missing_toggled(values: dict) -> list[str]:
+    """
+    Return the labels of switched-on settings without a value.
+    """
+    return [FIELDS_BY_NAME[target].label for toggle, target in TOGGLES.items()
+            if values[toggle] and not values[target]]
+
+
+def enabled_value(name: str):
+    """
+    Get a setting that has an on/off switch, or 0 if it is switched off.
+    """
+    return config[name] if config[TOGGLED_BY[name]] else 0
 
 
 config = load()

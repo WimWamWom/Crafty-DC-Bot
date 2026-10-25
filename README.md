@@ -84,12 +84,15 @@ If a required setting is missing, only the web interface starts.
 | `crafty.token` | `CRAFTY_TOKEN` | Crafty API token (required) |
 | `discord.token` | `DISCORD_TOKEN` | Discord bot token (required) |
 | `discord.guild_id` | `GUILD_ID` | ID of your Discord server, needed for slash commands |
-| `discord.command_channel_id` | `COMMAND_CHANNEL_ID` | Only accept commands in this channel (0 = all) |
-| `discord.control_role_id` | `CONTROL_ROLE_ID` | Only this role may start, stop and restart (0 = everyone) |
+| `discord.command_channel_enabled` | `COMMAND_CHANNEL_ENABLED` | Switch: only accept commands in one channel |
+| `discord.command_channel_id` | `COMMAND_CHANNEL_ID` | The command channel |
+| `discord.control_role_enabled` | `CONTROL_ROLE_ENABLED` | Switch: only one role may start, stop and restart |
+| `discord.control_role_id` | `CONTROL_ROLE_ID` | The control role |
 | `servers.allowed` | `ALLOWED_SERVERS` | Server IDs shown in the bot, comma-separated (empty = all) |
 | `auto_stop.enabled` | `ENABLE_AUTO_STOP_SERVER` | Stop empty servers automatically |
 | `auto_stop.interval` | `AUTO_STOP_SLEEP_TIME` | Check interval in seconds (default 1800), stop after two empty checks in a row |
-| `status.channel_id` | `STATUS_CHANNEL_ID` | Channel for the status board (0 = off) |
+| `status.enabled` | `STATUS_ENABLED` | Switch: show the self-updating status board |
+| `status.channel_id` | `STATUS_CHANNEL_ID` | Channel for the status board |
 | `status.update_interval` | `STATUS_UPDATE_INTERVAL` | Status board update interval in seconds (default 60) |
 | `web.port` | `WEB_PORT` | Port of the web interface (default 4883) |
 | `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name) |
