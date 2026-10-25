@@ -1,6 +1,7 @@
 """
-This module writes a random MOTD (the text under the server name in the server list) into server.properties.
+This module writes the MOTD (the text under the server name in the server list) into server.properties.
 
+A server gets a random message from the list, its own fixed message, or keeps its MOTD.
 The server reads server.properties when it starts, so a new MOTD is chosen before every start and restart
 by the bot and after every stop the bot sees, which also covers the next start from Crafty.
 """
@@ -8,15 +9,27 @@ by the bot and after every stop the bot sees, which also covers the next start f
 import random
 import re
 
-from core.config import get
+from core.config import KEEP_MOTD, get
 from core.properties import get_property, read_properties, set_property, write_properties
 
 # &a, &l, ... as an easier way to type § color codes
 COLOR_CODE = re.compile(r'&([0-9a-fk-orA-FK-OR])')
 
 
+def _choice(server_id: str) -> str | None:
+    """
+    The fixed message of a server, KEEP_MOTD, or None for a random message from the list.
+    """
+    return get('motd.servers').get(server_id)
+
+
 def is_active(server_id: str) -> bool:
-    return get('motd.enabled') and bool(get('motd.messages')) and server_id not in get('motd.excluded_servers')
+    if not get('motd.enabled'):
+        return False
+    choice = _choice(server_id)
+    if choice is None:
+        return bool(get('motd.messages'))
+    return choice != KEEP_MOTD
 
 
 def encode(message: str) -> str:
@@ -50,10 +63,14 @@ def current_motd(properties: str) -> str | None:
     return None if value is None else decode(value)
 
 
-def apply_random_motd(properties: str) -> str:
+def apply_motd(properties: str, server_id: str) -> str:
     """
-    Put a random MOTD from the list into the content of a server.properties file.
+    Put the fixed MOTD of the server, or a random one from the list, into the content of a server.properties file.
+    Call only if is_active(server_id).
     """
+    fixed = _choice(server_id)
+    if fixed is not None:
+        return replace_motd(properties, encode(fixed))
     # pick a different one than now if possible
     current = current_motd(properties)
     messages = get('motd.messages')
@@ -61,9 +78,9 @@ def apply_random_motd(properties: str) -> str:
     return replace_motd(properties, encode(random.choice(choices)))
 
 
-async def set_random_motd(server_id: str) -> None:
+async def set_motd(server_id: str) -> None:
     """
-    Write a random MOTD from the list into server.properties of the server.
+    Write the fixed MOTD of the server, or a random one from the list, into server.properties of the server.
     Never raises, a failure only means the MOTD stays as it is.
     """
     if not is_active(server_id):
@@ -73,7 +90,8 @@ async def set_random_motd(server_id: str) -> None:
         if read is None:
             return
         path, properties = read
-        if await write_properties(server_id, path, apply_random_motd(properties)):
+        new_properties = apply_motd(properties, server_id)
+        if new_properties != properties and await write_properties(server_id, path, new_properties):
             print(f'motd: new MOTD for {server_id}')
     except Exception as e:
         print(f'motd: failed for {server_id}: {e}')

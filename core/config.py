@@ -21,13 +21,16 @@ TRUE_VALUES = ('1', 'true', 'yes', 'on')
 
 # address.fixed value for servers whose port the bot does not change
 KEEP_PORT = 'keep'
+# motd.servers value for servers whose MOTD the bot does not change
+KEEP_MOTD = 'keep'
 
 
 @dataclass(frozen=True)
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, time, weekday or timezone
+    # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, server_motds, time,
+    # weekday or timezone
     kind: str
     default: object
     env: str | None
@@ -154,14 +157,15 @@ FIELDS = [
           'Geht danach an laufende Server. save-on = Speichern wieder an. Leer = keiner'),
     Field('backup', 'timeout', 'int', 600, None, 'Höchstens warten auf Start-Backup (Sekunden)',
           'Dauert das Backup vor /start länger, startet der Server trotzdem'),
-    Field('motd', 'enabled', 'bool', False, None, 'Zufällige MOTD aktiv',
+    Field('motd', 'enabled', 'bool', False, None, 'MOTD vom Bot setzen',
           'Die MOTD ist der Text unter dem Servernamen in der Serverliste. Bei jedem Start setzt der Bot eine '
-          'zufällige Nachricht aus der Liste. Braucht das Recht FILES'),
+          'zufällige Nachricht aus der Liste oder die feste MOTD des Servers. Braucht das Recht FILES'),
     Field('motd', 'messages', 'lines', [], None, 'Nachrichten',
           'Jede Zeile zeigt eine Nachricht so, wie sie in der Serverliste aussieht. Mit Bearbeiten '
           'änderst du sie samt Farben, Speichern übernimmt alle Änderungen'),
-    Field('motd', 'excluded_servers', 'servers', [], None, 'Server ohne zufällige MOTD',
-          'Diese Server behalten ihre MOTD'),
+    Field('motd', 'servers', 'server_motds', {}, None, 'MOTD pro Server',
+          'Zufällig = eine Nachricht aus der Liste oben. Fest = dieser Server zeigt immer denselben Text. '
+          '„Nicht ändern“ = der Bot lässt die MOTD des Servers, wie sie ist'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
           'In Docker 4883 lassen und nur das Port-Mapping ändern'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
@@ -256,6 +260,14 @@ def parse_value(field: Field, raw):
             raise ValueError(f'{field.label}: expected server ID: domain')
         return {str(server_id).strip(): str(choice).strip().lower() for server_id, choice in raw.items()
                 if str(server_id).strip() and str(choice).strip() and str(choice).strip().lower() != 'auto'}
+    if field.kind == 'server_motds':
+        # server ID -> fixed message or KEEP_MOTD; servers without an entry get a random message
+        if not raw:
+            return {}
+        if not isinstance(raw, dict):
+            raise ValueError(f'{field.label}: expected server ID: message')
+        return {str(server_id).strip(): str(choice).strip() for server_id, choice in raw.items()
+                if str(server_id).strip() and str(choice or '').strip()}
     if field.kind == 'servers':
         if raw is None:
             return []
@@ -303,6 +315,11 @@ def load() -> dict:
     old_fixed = (file_data.get('address') or {}).get('excluded_servers')
     if 'address.fixed' in missing and old_fixed:
         values['address.fixed'] = {str(server_id): KEEP_PORT for server_id in old_fixed}
+
+    # Older configs list servers that keep their MOTD instead of a MOTD per server
+    old_keep = (file_data.get('motd') or {}).get('excluded_servers')
+    if 'motd.servers' in missing and old_keep:
+        values['motd.servers'] = {str(server_id): KEEP_MOTD for server_id in old_keep}
 
     # Older configs have no switches: switch on what already has an ID
     for toggle, target in TOGGLES.items():

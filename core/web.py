@@ -138,6 +138,7 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-row .empty { color: var(--muted); font-style: italic; }
 .motd-row .k { filter: blur(3px); }
 .motd-row .actions { display: flex; gap: 4px; }
+.motd-row .mc-format.confirm { border-color: var(--bad); color: var(--bad); }
 .motd-editor { margin: 2px 0 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 2px;
                background: var(--plate); }
 .motd-editor[hidden] { display: none; }
@@ -145,6 +146,9 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-editor-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
 .motd-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .motd-count { color: var(--muted); font-size: 13px; }
+.motd-row.single { grid-template-columns: minmax(0, 1fr); margin-top: 6px; }
+.motd-fixed { margin: 2px 0 8px; padding: 10px; border: 1px solid var(--line); border-radius: 2px; background: var(--plate); }
+.motd-fixed[hidden] { display: none; }
 @media (max-width: 560px) { .motd-row { grid-template-columns: minmax(0, 1fr); }
                             .motd-row .num { display: none; } }
 /* Domain per server: one row per server with a dropdown */
@@ -315,6 +319,38 @@ document.querySelectorAll('[data-motd]').forEach(function (example) {
     renderMotdLine(line, example);
   });
 });
+// one message as it looks in the server list: two lines, the second one keeps the look of the first
+function renderMotdPreview(message, target) {
+  target.textContent = '';
+  if (!message.trim()) {
+    target.innerHTML = '<div class="line empty">leer</div>';
+    return;
+  }
+  target.innerHTML = '<div class="line"></div><div class="line"></div>';
+  var lines = target.querySelectorAll('.line');
+  // the second line keeps the formatting of the first, so render both into one flow
+  var halves = message.trim().split('\\\\n');
+  var carry = halves[0].match(/[&§][0-9a-fk-or]/gi) || [];
+  renderMotdLine(halves[0], lines[0]);
+  if (halves.length > 1) renderMotdLine(carry.join('') + halves.slice(1).join(' '), lines[1]);
+}
+// MOTD per server: the fixed message with its toolbar and preview only shows when chosen
+document.querySelectorAll('.motd-server').forEach(function (select) {
+  var box = document.querySelector('.motd-fixed[data-for="' + select.name + '"]');
+  var input = box.querySelector('input');
+  var target = box.querySelector('.lines');
+  var update = function () {
+    box.hidden = select.value !== 'fixed';
+    renderMotdPreview(input.value, target);
+  };
+  select.addEventListener('change', update);
+  input.addEventListener('input', update);
+  input.addEventListener('keydown', function (event) {
+    // Enter would send the form
+    if (event.key === 'Enter') event.preventDefault();
+  });
+  update();
+});
 document.querySelectorAll('.motd-list').forEach(function (list) {
   var source = document.getElementById(list.dataset.for);
   var editor = document.querySelector('.motd-editor[data-for="' + list.dataset.for + '"]');
@@ -328,20 +364,6 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
     var total = messages.filter(function (m) { return m.trim(); }).length;
     count.textContent = total === 1 ? '1 Nachricht' : total + ' Nachrichten';
   };
-  var preview = function (message, target) {
-    target.textContent = '';
-    if (!message.trim()) {
-      target.innerHTML = '<div class="line empty">leer</div>';
-      return;
-    }
-    target.innerHTML = '<div class="line"></div><div class="line"></div>';
-    var lines = target.querySelectorAll('.line');
-    // the second line keeps the formatting of the first, so render both into one flow
-    var halves = message.trim().split('\\\\n');
-    var carry = halves[0].match(/[&§][0-9a-fk-or]/gi) || [];
-    renderMotdLine(halves[0], lines[0]);
-    if (halves.length > 1) renderMotdLine(carry.join('') + halves.slice(1).join(' '), lines[1]);
-  };
   var render = function () {
     list.textContent = '';
     messages.forEach(function (message, index) {
@@ -352,7 +374,7 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
                       (index === editing ? 'Schließen' : 'Bearbeiten') + '</button>' +
                       '<button type="button" class="mc-format" data-act="delete">Löschen</button></div>';
       row.dataset.index = index;
-      preview(message, row.querySelector('.lines'));
+      renderMotdPreview(message, row.querySelector('.lines'));
       list.appendChild(row);
       if (index === editing) list.appendChild(editor);
     });
@@ -379,6 +401,20 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
     if (!button || !row) return;
     var index = Number(row.dataset.index);
     if (button.dataset.act === 'delete') {
+      // the first click only asks, the second one deletes
+      if (!button.classList.contains('confirm')) {
+        list.querySelectorAll('.confirm').forEach(function (other) {
+          other.classList.remove('confirm');
+          other.textContent = 'Löschen';
+        });
+        button.classList.add('confirm');
+        button.textContent = 'Wirklich löschen?';
+        setTimeout(function () {
+          button.classList.remove('confirm');
+          button.textContent = 'Löschen';
+        }, 4000);
+        return;
+      }
       messages.splice(index, 1);
       if (editing === index) editing = -1;
       else if (editing > index) editing--;
@@ -393,7 +429,7 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
   input.addEventListener('input', function () {
     if (editing < 0) return;
     messages[editing] = input.value;
-    preview(input.value, list.querySelector('.motd-row[data-index="' + editing + '"] .lines'));
+    renderMotdPreview(input.value, list.querySelector('.motd-row[data-index="' + editing + '"] .lines'));
     sync();
   });
   input.addEventListener('keydown', function (event) {
@@ -451,7 +487,7 @@ TABS = {
     ]),
     'motd': ('MOTD', 'Ein zufälliger Text unter dem Servernamen in der Serverliste, neu bei jedem Start.', [
         ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
-        ('Ausnahmen', ['motd.excluded_servers']),
+        ('Pro Server', ['motd.servers']),
     ]),
     'web': ('Webinterface', 'Zugang zu dieser Seite.', [
         ('Zugang', ['web.port', 'web.password']),
@@ -519,7 +555,7 @@ def _motd_hints() -> str:
             f'<div class="mc-example" data-motd="{escape(MOTD_EXAMPLE)}"></div></details>')
 
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains', 'server_domains')
+WIDE_KINDS = ('bool', 'servers', 'list', 'lines', 'domains', 'server_domains', 'server_motds')
 
 
 class WebInterface:
@@ -593,6 +629,20 @@ class WebInterface:
                     prefix = f'{name}.'
                     values[name] = cfg.parse_value(field, {key[len(prefix):]: form[key] for key in form
                                                            if key.startswith(prefix) and key != f'{name}.present'})
+            elif field.kind == 'server_motds':
+                if f'{name}.present' in form:
+                    prefix = f'{name}.'
+                    choices = {}
+                    for key in form:
+                        server_id = key[len(prefix):]
+                        if not key.startswith(prefix) or server_id == 'present' or server_id.endswith('.text'):
+                            continue
+                        if form[key] == 'keep':
+                            choices[server_id] = cfg.KEEP_MOTD
+                        elif form[key] == 'fixed':
+                            # an empty fixed message means random
+                            choices[server_id] = form.get(f'{key}.text', '')
+                    values[name] = cfg.parse_value(field, choices)
             elif field.kind == 'secret':
                 if f'{name}.clear' in form:
                     values[name] = ''
@@ -809,6 +859,41 @@ class WebInterface:
                                        f'{escape(text)}</option>' for option, text in options)
                 rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>'
                             f'<select name="{name}.{escape(server_id)}">{html_options}</select></label>')
+            if not servers:
+                rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
+            return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
+                    f'<div class="domain-rows">{"".join(rows)}</div>{help_text}</div>')
+
+        if field.kind == 'server_motds':
+            marker = f'<input type="hidden" name="{name}.present" value="1">'
+            if servers is None:
+                # keep the current choices if the server list is not available
+                hidden = ''
+                for server_id, choice in value.items():
+                    key = f'{name}.{escape(server_id)}'
+                    if choice == cfg.KEEP_MOTD:
+                        hidden += f'<input type="hidden" name="{key}" value="keep">'
+                    else:
+                        hidden += (f'<input type="hidden" name="{key}" value="fixed">'
+                                   f'<input type="hidden" name="{key}.text" value="{escape(choice)}">')
+                return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
+                        f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
+                        f'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+            rows = []
+            for server in servers:
+                key = f'{name}.{escape(server["server_id"])}'
+                choice = value.get(server['server_id'])
+                mode = 'random' if choice is None else 'keep' if choice == cfg.KEEP_MOTD else 'fixed'
+                text = choice if mode == 'fixed' else ''
+                options = [('random', 'Zufällig aus der Liste'), ('fixed', 'Feste MOTD'), ('keep', 'Nicht ändern')]
+                html_options = ''.join(f'<option value="{option}"{" selected" if option == mode else ""}>'
+                                       f'{option_text}</option>' for option, option_text in options)
+                rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>'
+                            f'<select class="motd-server" name="{key}">{html_options}</select></label>'
+                            f'<div class="motd-fixed" data-for="{key}">{_motd_toolbar(key + ".text")}'
+                            f'<input type="text" id="{key}.text" name="{key}.text" value="{escape(text)}" '
+                            f'autocomplete="off" aria-label="Feste MOTD für {escape(server["server_name"])}">'
+                            f'<div class="motd-row single"><div class="lines"></div></div></div>')
             if not servers:
                 rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'

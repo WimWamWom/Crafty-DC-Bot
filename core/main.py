@@ -30,7 +30,7 @@ from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
-from core.motd import set_random_motd
+from core.motd import set_motd
 from core.address import has_free_domain, prepare_start
 from core.constants import (GUILD_ID, WEB_PORT, auto_stop_enabled, auto_stop_idle_time, session_channel_id,
                             session_enabled, status_channel_id, status_update_interval)
@@ -74,7 +74,7 @@ def auto_stop_eta(server_id: str) -> float | None:
     return empty_since.get(server_id, time.time()) + auto_stop_idle_time()
 
 
-sessions = SessionTracker(bot, session_channel_id, auto_stop_eta, set_random_motd)
+sessions = SessionTracker(bot, session_channel_id, auto_stop_eta, set_motd)
 
 
 # stop servers auto_stop.idle_minutes after the last player left (or after the start if nobody joined)
@@ -330,7 +330,7 @@ async def restart(ctx, server_id):
         return
 
     sessions.mark_restart(server_id)
-    await set_random_motd(server_id)
+    await set_motd(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
     else:
