@@ -209,7 +209,9 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .notice.err { color: var(--bad); background: rgba(255, 107, 91, .07); }
 
 .savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; background: rgba(17, 17, 16, .9);
-           backdrop-filter: blur(8px); border-top: 1px solid var(--line); }
+           backdrop-filter: blur(8px); border-top: 1px solid var(--line); transition: transform .25s ease; }
+/* only shown once something was changed */
+.savebar.hidden { transform: translateY(110%); }
 .savebar .inner { max-width: 1160px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center;
                   justify-content: space-between; gap: 16px; }
 .savebar small { font: 12px var(--mono); color: var(--dim); }
@@ -252,6 +254,24 @@ tabs.forEach(function (tab) {
   });
 });
 var firstError = document.querySelector('nav.tabs a.has-error');
+// save bar: only shown when the form differs from the saved settings (and after a failed save)
+var form = document.querySelector('form');
+var savebar = document.querySelector('.savebar');
+var formState = function () { return new URLSearchParams(new FormData(form)).toString(); };
+// a failed save keeps the bar, the changes are not saved yet
+var keepBar = !savebar.classList.contains('hidden');
+var savedState = null;
+// once every script on the page has set up its fields
+setTimeout(function () { savedState = formState(); });
+var checkChanges = function () {
+  // after the handlers that change the form, e.g. dragging a server or editing a MOTD message
+  setTimeout(function () {
+    if (savedState !== null) savebar.classList.toggle('hidden', !keepBar && formState() === savedState);
+  });
+};
+['input', 'change', 'click', 'pointerup', 'keyup'].forEach(function (type) {
+  form.addEventListener(type, checkChanges);
+});
 // links to the tabs before they were merged
 var OLD_TABS = {crafty: 'connection', web: 'connection', status: 'discord', session: 'discord',
                 auto_stop: 'servers', address: 'servers'};
@@ -931,7 +951,7 @@ class WebInterface:
 
         body = (f'<nav class="tabs">{"".join(nav)}</nav>'
                 f'<form method="post" class="content">{"".join(notices)}{"".join(panels)}'
-                f'<div class="savebar"><div class="inner"><small>Speichert alle Bereiche. Nur Discord-Token, Server-ID und Port brauchen einen Neustart.</small>'
+                f'<div class="savebar{"" if errors else " hidden"}"><div class="inner"><small>Speichert alle Bereiche. Nur Discord-Token, Server-ID und Port brauchen einen Neustart.</small>'
                 f'<button type="submit">Speichern<span class="go" aria-hidden="true">→</span>'
                 f'</button></div></div></form>')
         return self._page(body, state=state)
