@@ -2,53 +2,40 @@
 This module contains helper different functions.
 """
 
-import os
-import sys
 import time
 import uuid
 
 import discord
 from discord import app_commands
 
-from core.network import get_json_response
+from core.config import config, missing_required
+from core.constants import ALLOWED_SERVERS
+from core.server import get_servers
 
 
-def check_env_vars():
+def check_config() -> bool:
     """
-    Check if all required environment variables are set and exit if any are missing.
+    Check if all required settings are set.
 
-    The required environment variables are:
-    - SERVER_URL
-    - DISCORD_TOKEN
-    - CRAFTY_TOKEN (or USERNAME and PASSWORD if CRAFTY_TOKEN is not set)
+    The required settings are the Crafty URL, the Crafty API token and the Discord bot token.
+    They can be set in the config file, the web interface or the environment variables
+    SERVER_URL, CRAFTY_TOKEN and DISCORD_TOKEN.
 
-    If any required environment variable is missing or empty, the function will
-    print an error message and exit the program.
+    Returns:
+        bool: True if the bot can start, False otherwise.
     """
-    required_env_vars = [
-        var for var in ['SERVER_URL', 'DISCORD_TOKEN']
-        if var not in os.environ
-    ]
+    missing = missing_required(config)
+    if missing:
+        print('Not all required settings set')
+        for label in missing:
+            print(f'{label} not set')
+        return False
 
-    if 'CRAFTY_TOKEN' not in os.environ or not os.environ['CRAFTY_TOKEN']:
-        required_env_vars.extend(
-            var for var in ['USERNAME', 'PASSWORD']
-            if var not in os.environ
-        )
-        required_env_vars.append('or CRAFTY_TOKEN')
+    if not config['discord.guild_id']:
+        print('Discord server ID (GUILD_ID) not set: slash commands will not be available')
 
-    if required_env_vars:
-        print('Not all environment variables set')
-        for env_var in required_env_vars:
-            print(f'{env_var} not set')
-        sys.exit()
-
-    print('All environment variables set')
-
-    for var in ['SERVER_URL', 'CRAFTY_TOKEN', 'DISCORD_TOKEN']:
-        if not os.environ.get(var):
-            print(f'{var} not set')
-            sys.exit()
+    print('All required settings set')
+    return True
 
 
 async def check_server_id(server_id: str, ctx=None) -> bool:
@@ -69,7 +56,12 @@ async def check_server_id(server_id: str, ctx=None) -> bool:
     except ValueError:
         print('Invalid server ID')
         if ctx:
-            await ctx.reply('Invalid server ID')
+            await ctx.reply('Invalid server ID', ephemeral=True)
+        return False
+    if ALLOWED_SERVERS and server_id not in ALLOWED_SERVERS:
+        print('Server not available')
+        if ctx:
+            await ctx.reply('Server not available', ephemeral=True)
         return False
     print('Valid server ID')
     return True
@@ -81,25 +73,40 @@ cache_timestamp = 0
 CACHE_DURATION = 60  # Cache duration in seconds (e.g., 1 minute)
 
 
-async def get_server_list(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+async def get_cached_servers() -> list[dict] | None:
+    """
+    Get the server list, cached for CACHE_DURATION seconds.
+    """
     global cached_server_list, cache_timestamp
 
     # Check if the cache is still valid
     if cached_server_list is not None and (time.time() - cache_timestamp) < CACHE_DURATION:
-        data = cached_server_list
-    else:
-        data = get_json_response('/api/v2/servers', 'failed to get server list')
-        if not data:
-            return [app_commands.Choice(name='failed to get server list', value='failed to get server list')]
-        cached_server_list = data
-        cache_timestamp = time.time()
+        return cached_server_list
 
-    data = data['data']
-    server_uuid = []
-    server_name = []
-    for server in data:
-        server_uuid.append(server['server_id'])
-        server_name.append(server['server_name'])
-    server_list = [app_commands.Choice(name=server_name[i], value=server_uuid[i]) for i in range(len(server_uuid)) if
-                   server_name[i].lower().startswith(current.lower())]
-    return server_list
+    servers = await get_servers()
+    if servers is not None:
+        cached_server_list = servers
+        cache_timestamp = time.time()
+    return servers
+
+
+async def get_server_name(server_id: str) -> str:
+    """
+    Get the name of the server with the specified ID, or the ID itself if it is unknown.
+    """
+    for server in await get_cached_servers() or []:
+        if server['server_id'] == server_id:
+            return server['server_name']
+    return server_id
+
+
+async def get_server_list(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    servers = await get_cached_servers()
+    if servers is None:
+        return [app_commands.Choice(name='failed to get server list', value='failed to get server list')]
+
+    server_list = [app_commands.Choice(name=server['server_name'][:100], value=server['server_id'])
+                   for server in servers
+                   if server['server_name'].lower().startswith(current.lower())]
+    # Discord allows at most 25 choices
+    return server_list[:25]
