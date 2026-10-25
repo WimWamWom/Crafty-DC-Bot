@@ -30,6 +30,7 @@ from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
 from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
+from core.icon import set_icon
 from core.motd import set_motd
 from core.address import has_free_domain, prepare_start
 from core.constants import (GUILD_ID, WEB_PORT, auto_stop_enabled, auto_stop_idle_time, session_channel_id,
@@ -74,7 +75,15 @@ def auto_stop_eta(server_id: str) -> float | None:
     return empty_since.get(server_id, time.time()) + auto_stop_idle_time()
 
 
-sessions = SessionTracker(bot, session_channel_id, auto_stop_eta, set_motd)
+async def after_stop(server_id: str) -> None:
+    """
+    Prepare the next start of a stopped server, also when it is started from Crafty.
+    """
+    await set_motd(server_id)
+    await set_icon(server_id)
+
+
+sessions = SessionTracker(bot, session_channel_id, auto_stop_eta, after_stop)
 
 
 # stop servers auto_stop.idle_minutes after the last player left (or after the start if nobody joined)
@@ -258,6 +267,7 @@ async def start(ctx, server_id):
         return
     if domain is not None and session is not None:
         await sessions.update(session, address=domain)
+    await set_icon(server_id)
 
     if await server_action(server_id, 'start_server'):
         mark_started(server_id)
@@ -331,6 +341,7 @@ async def restart(ctx, server_id):
 
     sessions.mark_restart(server_id)
     await set_motd(server_id)
+    await set_icon(server_id)
     if await server_action(server_id, 'restart_server'):
         await ctx.reply('Server restarted', ephemeral=True)
     else:

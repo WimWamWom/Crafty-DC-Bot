@@ -72,3 +72,16 @@ async def get_json_response(path: str, error_message: str = "Error while respons
     except ValueError:
         print(f"{error_message}: invalid JSON")
         return {}
+
+
+def upload_file(path: str, content: bytes, headers: dict, timeout: int = 15) -> Response:
+    """
+    Send a file as the raw request body to the given path, with extra headers. Returns the response.
+    """
+    url = get('crafty.url').rstrip('/') + path
+    headers = {'Authorization': 'Bearer ' + get('crafty.token'), 'Content-Type': 'application/octet-stream', **headers}
+    try:
+        return requests.post(url, headers=headers, data=content, verify=False, timeout=timeout)
+    except requests.RequestException as e:
+        print(f"Request failed: {e}")
+        return Response()

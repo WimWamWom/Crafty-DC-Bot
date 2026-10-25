@@ -2,9 +2,11 @@
 This module contains a simple web interface to edit the bot configuration.
 """
 
+import asyncio
 import base64
 import binascii
 import hmac
+import time
 from html import escape
 from typing import Callable
 from urllib.parse import urlparse
@@ -13,6 +15,7 @@ import discord
 from aiohttp import web
 
 from core import config as cfg
+from core import icon
 from core.constants import LOGO_URL
 from core.server import get_servers
 
@@ -138,7 +141,7 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
 .motd-row .empty { color: var(--muted); font-style: italic; }
 .motd-row .k { filter: blur(3px); }
 .motd-row .actions { display: flex; gap: 4px; }
-.motd-row .mc-format.confirm { border-color: var(--bad); color: var(--bad); }
+.motd-row .mc-format.confirm, .icon-remove.confirm { border-color: var(--bad); color: var(--bad); }
 .motd-editor { margin: 2px 0 6px; padding: 10px; border: 1px solid var(--accent); border-radius: 2px;
                background: var(--plate); }
 .motd-editor[hidden] { display: none; }
@@ -161,6 +164,18 @@ details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; 
         background: var(--plate); color: var(--muted); font-size: 18px; cursor: grab; touch-action: none; box-shadow: none; }
 .drag:hover, .drag:focus-visible { border-color: var(--accent); color: var(--accent); transform: none; box-shadow: none; }
 .order-row.dragging .drag { cursor: grabbing; }
+/* Server icons: picture, name, upload and remove */
+.icon-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.icon-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; }
+.icon-row > span:not(.icon-error) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-icon { width: 48px; height: 48px; border-radius: 2px; border: 1px solid var(--line); background: var(--plate);
+               image-rendering: pixelated; object-fit: cover; }
+.icon-remove[hidden] { display: none; }
+.icon-upload { display: inline-flex; align-items: center; cursor: pointer; }
+.icon-upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.icon-upload:focus-within { border-color: var(--accent); color: var(--accent); }
+.icon-error { grid-column: 2 / -1; color: var(--bad); font-size: 13px; }
+.icon-error:empty { display: none; }
 /* Domain per server: one row per server with a dropdown */
 .domain-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .domain-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; align-items: center; }
@@ -429,6 +444,46 @@ document.querySelectorAll('.order-rows').forEach(function (rows) {
     rows.querySelectorAll('input[type=hidden]').forEach(function (input) { input.disabled = alphabetical; });
   });
 });
+// server icons: upload or remove at once, without the save button
+document.querySelectorAll('.icon-row').forEach(function (row) {
+  var image = row.querySelector('img');
+  var remove = row.querySelector('.icon-remove');
+  var error = row.querySelector('.icon-error');
+  var send = function (path, body) {
+    error.textContent = '';
+    return fetch(path, {method: 'POST', body: body}).then(function (response) {
+      return response.json().then(function (data) {
+        if (!response.ok) throw new Error(data.error || 'Fehler beim Speichern');
+        return data;
+      });
+    }).catch(function (e) { error.textContent = e.message; throw e; });
+  };
+  row.querySelector('input[type=file]').addEventListener('change', function (event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    var body = new FormData();
+    body.append('icon', file);
+    send('/icon/' + row.dataset.server, body).then(function (data) {
+      image.src = data.url;
+      remove.hidden = false;
+    }).catch(function () {});
+    event.target.value = '';
+  });
+  remove.addEventListener('click', function () {
+    if (!remove.classList.contains('confirm')) {
+      remove.classList.add('confirm');
+      remove.textContent = 'Wirklich entfernen?';
+      setTimeout(function () { remove.classList.remove('confirm'); remove.textContent = 'Entfernen'; }, 4000);
+      return;
+    }
+    send('/icon/' + row.dataset.server + '/delete').then(function () {
+      image.removeAttribute('src');
+      remove.hidden = true;
+      remove.classList.remove('confirm');
+      remove.textContent = 'Entfernen';
+    }).catch(function () {});
+  });
+});
 document.querySelectorAll('.motd-list').forEach(function (list) {
   var source = document.getElementById(list.dataset.for);
   var editor = document.querySelector('.motd-editor[data-for="' + list.dataset.for + '"]');
@@ -528,6 +583,9 @@ document.querySelectorAll('.motd-list').forEach(function (list) {
 
 WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 
+# Group entry for the server icons, which are files and not a config setting
+ICONS = 'icons'
+
 # One tab per config section: short tab label, intro line and groups of fields.
 # Fields of a section that are not listed in a group end up in an extra group at the end.
 TABS = {
@@ -566,6 +624,7 @@ TABS = {
     'motd': ('MOTD', 'Ein zufälliger Text unter dem Servernamen in der Serverliste, neu bei jedem Start.', [
         ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
         ('Pro Server', ['motd.servers']),
+        ('Server-Icon', [ICONS]),
     ]),
     'web': ('Webinterface', 'Zugang zu dieser Seite.', [
         ('Zugang', ['web.port', 'web.password']),
@@ -652,8 +711,13 @@ class WebInterface:
     def __init__(self, bot: discord.Client, on_saved: Callable[[set[str]], bool]):
         self.bot = bot
         self.on_saved = on_saved
-        self.app = web.Application(middlewares=[self.auth_middleware])
-        self.app.add_routes([web.get('/', self.index), web.post('/', self.save)])
+        # room for an uploaded picture, the rest of the page sends only a few kB
+        self.app = web.Application(middlewares=[self.auth_middleware], client_max_size=icon.MAX_UPLOAD + 1024 * 1024)
+        self.app.add_routes([web.get('/', self.index), web.post('/', self.save),
+                             web.get('/icon/{server_id}.png', self.get_icon),
+                             web.post('/icon/{server_id}', self.upload_icon),
+                             web.post('/icon/{server_id}/delete', self.remove_icon)])
+        self.tasks: set[asyncio.Task] = set()
         self.runner: web.AppRunner | None = None
 
     async def start(self, port: int) -> None:
@@ -689,10 +753,51 @@ class WebInterface:
     async def index(self, request: web.Request) -> web.Response:
         return await self.render()
 
-    async def save(self, request: web.Request) -> web.Response:
-        # reject form posts from other sites
+    @staticmethod
+    def _foreign(request: web.Request) -> bool:
+        # form posts from other sites
         origin = request.headers.get('Origin')
-        if origin and urlparse(origin).netloc != request.host:
+        return bool(origin) and urlparse(origin).netloc != request.host
+
+    async def get_icon(self, request: web.Request) -> web.StreamResponse:
+        try:
+            path = icon.icon_path(request.match_info['server_id'])
+        except ValueError:
+            raise web.HTTPNotFound()
+        if not icon.has_icon(request.match_info['server_id']):
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={'Cache-Control': 'no-store'})
+
+    async def upload_icon(self, request: web.Request) -> web.Response:
+        server_id = request.match_info['server_id']
+        if self._foreign(request) or not icon.SERVER_ID.fullmatch(server_id):
+            return web.json_response({'error': 'Nicht erlaubt'}, status=403)
+        try:
+            form = await request.post()
+            upload = form.get('icon')
+            if upload is None or not hasattr(upload, 'file'):
+                raise ValueError('no picture')
+            icon.save_icon(server_id, upload.file.read(icon.MAX_UPLOAD + 1))
+        except web.HTTPRequestEntityTooLarge:
+            return web.json_response({'error': 'Bild zu groß (höchstens 10 MB)'}, status=413)
+        except ValueError:
+            return web.json_response({'error': 'Das ist kein Bild, das sich lesen lässt'}, status=400)
+        # write it into the server folder now, so the next start shows it, also from Crafty
+        task = asyncio.create_task(icon.set_icon(server_id))
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+        print(f'web: new icon for {server_id}')
+        return web.json_response({'url': f'/icon/{server_id}.png?v={int(time.time())}'})
+
+    async def remove_icon(self, request: web.Request) -> web.Response:
+        server_id = request.match_info['server_id']
+        if self._foreign(request) or not icon.SERVER_ID.fullmatch(server_id):
+            return web.json_response({'error': 'Nicht erlaubt'}, status=403)
+        icon.delete_icon(server_id)
+        return web.json_response({})
+
+    async def save(self, request: web.Request) -> web.Response:
+        if self._foreign(request):
             return web.Response(status=403, text='Forbidden')
 
         form = await request.post()
@@ -794,7 +899,8 @@ class WebInterface:
             section_fields = [name for name, field in cfg.FIELDS_BY_NAME.items() if field.section == section]
             listed = {name for _, names in groups for name in names}
             leftover = [name for name in section_fields if name not in listed]
-            groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME]) for group, names in groups]
+            groups = [(group, [name for name in names if name in cfg.FIELDS_BY_NAME or name == ICONS])
+                      for group, names in groups]
             if leftover:
                 groups.append(('Weitere' if groups else title, leftover))
             accent = f'style="--accent:{ACCENTS[index % len(ACCENTS)]}"'
@@ -813,6 +919,9 @@ class WebInterface:
             for group, names in groups:
                 html.append(f'<div class="group"><h3>{escape(group)}</h3><div class="grid">')
                 for name in names:
+                    if name == ICONS:
+                        html.append(self._render_icons(servers))
+                        continue
                     html.append(self._render_field(name, cfg.FIELDS_BY_NAME[name], values[name], guild, servers,
                                                    name in invalid, values))
                 html.append('</div></div>')
@@ -844,6 +953,33 @@ class WebInterface:
                 f'{body}<footer><span>Crafty Bot · Port {cfg.config["web.port"]}</span>'
                 f'<span>{escape(cfg.CONFIG_PATH)}</span></footer></div>{SCRIPT}</body></html>')
         return web.Response(text=html, content_type='text/html')
+
+    @staticmethod
+    def _render_icons(servers: list[dict] | None) -> str:
+        """
+        One row per server with its icon and buttons to upload or remove it. Uploads take effect at once.
+        """
+        help_text = ('<div class="help">Jedes Bild wird quadratisch zugeschnitten und als PNG mit 64x64 Pixeln '
+                     'gespeichert, die einzige Größe, die Minecraft anzeigt. Gilt ab dem nächsten Start. '
+                     'Ohne Icon lässt der Bot das Icon des Servers, wie es ist</div>')
+        if servers is None:
+            return ('<div class="field wide"><div class="help">Serverliste konnte nicht von Crafty geladen werden. '
+                    'Prüfe URL und Token im Tab „Crafty“.</div></div>')
+        rows = []
+        for server in servers:
+            server_id = escape(server['server_id'])
+            has = icon.SERVER_ID.fullmatch(server['server_id']) and icon.has_icon(server['server_id'])
+            src = f' src="/icon/{server_id}.png?v={int(time.time())}"' if has else ''
+            rows.append(f'<div class="icon-row" data-server="{server_id}"><img class="server-icon" alt=""{src}>'
+                        f'<span>{escape(server["server_name"])}</span>'
+                        f'<label class="mc-format icon-upload">Hochladen<input type="file" accept="image/*" '
+                        f'aria-label="Icon für {escape(server["server_name"])} hochladen"></label>'
+                        f'<button type="button" class="mc-format icon-remove"{"" if has else " hidden"}>Entfernen'
+                        f'</button><span class="icon-error"></span></div>')
+        if not servers:
+            rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
+        return (f'<div class="field wide"><label class="name">Icon pro Server</label>'
+                f'<div class="icon-rows">{"".join(rows)}</div>{help_text}</div>')
 
     @staticmethod
     def _render_field(name: str, field: cfg.Field, value, guild: discord.Guild | None,

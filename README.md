@@ -13,7 +13,7 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 - Auto stop for empty servers
 - Automatic backups in Crafty (before start, daily, weekly), only when the server was played
 - Random MOTD (text under the server name in the server list) from your own list, new for every server start,
-  or a fixed MOTD per server
+  or a fixed MOTD per server, and a server icon per server uploaded in the web interface
 - Commands limited to one channel, server control limited to one role
 - Choose which Crafty servers the bot shows
 - Web interface on port 4883 for all settings
@@ -38,7 +38,7 @@ The bot owner can use all commands in every channel, regardless of the channel a
 ### Crafty API token
 
 Create a user for the bot in Crafty (gear icon → add user), then open the user, go to "API Key" and create a token
-with the permissions `COMMANDS`, `TERMINAL`, `PLAYERS`, `BACKUP` (for automatic backups) and `FILES` (for the random MOTD).
+with the permissions `COMMANDS`, `TERMINAL`, `PLAYERS`, `BACKUP` (for automatic backups) and `FILES` (for the MOTD and server icons).
 For automatic domains the token must be from a superuser and also have `CONFIG`, because only superusers may change
 the port of a server in Crafty.
 
@@ -116,6 +116,10 @@ restart by the bot and after every stop it sees, the bot writes a random message
 `server.properties`. It changes once per server start, not on every refresh of the server list.
 Under "MOTD pro Server" a server can instead get a fixed MOTD that it always shows, or keep its MOTD untouched.
 Use `&a`, `&l` and so on for colors and formatting and `\n` for a second line.
+
+Server icons are uploaded per server in the MOTD tab. Every picture is cut to a square and stored as a 64x64 PNG
+(the only size Minecraft shows) in `icons/` next to `config.yaml`. The bot writes it as `server-icon.png` into the
+server folder right after the upload and before every start, restart and after every stop it sees.
 
 Domains (`address.*`) are set there too. List them as `domain:port`, each pointing to its port with a Minecraft SRV
 record (e.g. `_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de`). A server running on one of these ports
