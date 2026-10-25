@@ -64,12 +64,15 @@ class SessionTracker:
         channel_id: Channel for servers started outside the bot, and for all sessions if set. 0 = none.
         auto_stop_eta: Function that returns the time (epoch seconds) when auto stop will stop a server
             if nobody joins, or None if auto stop is off.
+        on_stop: Coroutine function called with the server ID when a server is seen stopped.
     """
 
-    def __init__(self, bot: discord.Client, channel_id: int, auto_stop_eta=None):
+    def __init__(self, bot: discord.Client, channel_id: int, auto_stop_eta=None, on_stop=None):
         self.bot = bot
         self.channel_id = channel_id
         self.auto_stop_eta = auto_stop_eta or (lambda server_id: None)
+        self.on_stop = on_stop
+        self.tasks: set[asyncio.Task] = set()
         self.sessions: dict[str, Session] = {}
         # reasons for stops requested by the bot, used when the server is seen stopped
         self.stop_reasons: dict[str, str] = {}
@@ -274,4 +277,8 @@ class SessionTracker:
                     else:
                         reason = self.stop_reasons.get(server_id, 'stopped outside the bot')
                     self._finish(session, reason)
+                    if self.on_stop is not None:
+                        task = asyncio.create_task(self.on_stop(server_id))
+                        self.tasks.add(task)
+                        task.add_done_callback(self.tasks.discard)
                 await self._show(session)

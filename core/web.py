@@ -126,6 +126,18 @@ details summary:hover { color: var(--accent); }
 details ul { margin-top: 8px; padding-left: 18px; }
 details li.head { list-style: none; margin: 10px 0 2px -18px; font-weight: 600; color: var(--text); }
 
+/* MOTD preview: one entry per message, roughly like the Minecraft server list */
+.motd-preview { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.motd-preview:empty { display: none; }
+.motd-entry { display: flex; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 2px;
+              background: #0c0c0c; border: 1px solid var(--line); }
+.motd-entry .icon { flex: none; width: 40px; height: 40px; border-radius: 2px; background: var(--plate);
+                    border: 1px solid var(--line-strong); }
+.motd-entry .lines { min-width: 0; font: 14px/1.35 var(--mono); }
+.motd-entry .title { color: #fff; }
+.motd-entry .line { color: #aaa; white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.35em; }
+.motd-entry .k { filter: blur(3px); }
+
 .notice { padding: 14px 18px; border: 1px solid; border-radius: 4px; font-size: 14px; display: flex; gap: 10px; }
 .notice::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; flex: none; margin-top: 6px; }
 .notice.ok { color: #d4f25a; background: rgba(212, 242, 90, .07); }
@@ -185,6 +197,57 @@ document.querySelectorAll('[data-toggled-by]').forEach(function (field) {
   toggle.addEventListener('change', update);
   update();
 });
+
+// MOTD preview: & and § codes as colors and formatting, \\n as the second line
+var MC_COLORS = {'0': '#000000', '1': '#0000aa', '2': '#00aa00', '3': '#00aaaa', '4': '#aa0000', '5': '#aa00aa',
+                 '6': '#ffaa00', '7': '#aaaaaa', '8': '#555555', '9': '#5555ff', 'a': '#55ff55', 'b': '#55ffff',
+                 'c': '#ff5555', 'd': '#ff55ff', 'e': '#ffff55', 'f': '#ffffff'};
+function renderMotdLine(text, target) {
+  var style = {};
+  var parts = text.split(/[&\u00a7]([0-9a-fk-or])/i);
+  for (var i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {
+      var code = parts[i].toLowerCase();
+      // a color resets the formatting, like in Minecraft
+      if (MC_COLORS[code]) style = {color: MC_COLORS[code]};
+      else if (code === 'r') style = {};
+      else style[code] = true;
+      continue;
+    }
+    if (!parts[i]) continue;
+    var span = document.createElement('span');
+    span.textContent = parts[i];
+    if (style.color) span.style.color = style.color;
+    if (style.l) span.style.fontWeight = '700';
+    if (style.o) span.style.fontStyle = 'italic';
+    var deco = (style.n ? ' underline' : '') + (style.m ? ' line-through' : '');
+    if (deco) span.style.textDecoration = deco.trim();
+    if (style.k) span.className = 'k';
+    target.appendChild(span);
+  }
+}
+document.querySelectorAll('.motd-preview').forEach(function (preview) {
+  var input = document.getElementById(preview.dataset.for);
+  var update = function () {
+    preview.textContent = '';
+    input.value.split('\\n').forEach(function (message) {
+      if (!message.trim()) return;
+      var entry = document.createElement('div');
+      entry.className = 'motd-entry';
+      entry.innerHTML = '<div class="icon"></div><div class="lines"><div class="title">' +
+                        'Minecraft Server</div><div class="line"></div><div class="line"></div></div>';
+      var lines = entry.querySelectorAll('.line');
+      // the second line keeps the formatting of the first, so render both into one flow
+      var halves = message.trim().split('\\\\n');
+      var carry = halves[0].match(/[&\u00a7][0-9a-fk-or]/gi) || [];
+      renderMotdLine(halves[0], lines[0]);
+      if (halves.length > 1) renderMotdLine(carry.join('') + halves.slice(1).join(' '), lines[1]);
+      preview.appendChild(entry);
+    });
+  };
+  input.addEventListener('input', update);
+  update();
+});
 </script>"""
 
 WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
@@ -220,13 +283,20 @@ TABS = {
         ('Server ohne Backups', ['backup.excluded_servers', 'backup.delete_excluded']),
         ('Aufräumen', ['backup.delete_after_days']),
     ]),
+    'motd': ('MOTD', 'Ein zufälliger Text unter dem Servernamen in der Serverliste, neu bei jedem Start.', [
+        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
+        ('Ausnahmen', ['motd.excluded_servers']),
+    ]),
     'web': ('Webinterface', 'Zugang zu dieser Seite.', [
         ('Zugang', ['web.port', 'web.password']),
     ]),
 }
 
+# Fields that get a preview of every line as a Minecraft server list entry
+MOTD_PREVIEW = ('motd.messages',)
+
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'list')
+WIDE_KINDS = ('bool', 'servers', 'list', 'lines')
 
 
 class WebInterface:
@@ -456,9 +526,12 @@ class WebInterface:
             return (f'{open_tag}{label}<select id="{name}" name="{name}">'
                     f'{"".join(html_options)}</select>{help_text}</div>')
 
-        if field.kind == 'list':
+        if field.kind in ('list', 'lines'):
+            preview = ''
+            if name in MOTD_PREVIEW:
+                preview = f'<div class="motd-preview" data-for="{name}"></div>'
             return (f'{open_tag}{label}<textarea id="{name}" name="{name}">'
-                    f'{escape(chr(10).join(value))}</textarea>{help_text}</div>')
+                    f'{escape(chr(10).join(value))}</textarea>{preview}{help_text}</div>')
 
         if field.kind == 'weekday':
             options = ''.join(f'<option value="{day}"{" selected" if day == value else ""}>{day_name}</option>'
