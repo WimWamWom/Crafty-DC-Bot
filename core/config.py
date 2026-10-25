@@ -8,7 +8,9 @@ On the first start, the config file is created from the environment variables.
 
 import json
 import os
+import re
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import yaml
 
@@ -22,13 +24,15 @@ TRUE_VALUES = ('1', 'true', 'yes', 'on')
 class Field:
     section: str
     key: str
-    # str, secret, int, bool, channel, role or servers
+    # str, secret, int, bool, channel, role, servers, list, time, weekday or timezone
     kind: str
     default: object
     env: str | None
     label: str
     help: str
     required: bool = False
+    # longer hints shown in a collapsible box in the web interface, one per line
+    details: str = ''
 
 
 SECTIONS = {
@@ -37,6 +41,7 @@ SECTIONS = {
     'servers': 'Server',
     'auto_stop': 'Auto-Stop',
     'status': 'Status-Embed',
+    'backup': 'Backups',
     'web': 'Webinterface',
 }
 
@@ -63,6 +68,48 @@ FIELDS = [
           'Kanal mit der Statusübersicht, die sich selbst aktualisiert. 0 = aus'),
     Field('status', 'update_interval', 'int', 60, 'STATUS_UPDATE_INTERVAL', 'Aktualisierung (Sekunden)',
           'Wie oft die Statusübersicht aktualisiert wird'),
+    Field('backup', 'enabled', 'bool', False, None, 'Automatische Backups aktiv',
+          'Der Bot legt bei jedem verfügbaren Server die Backup-Konfigurationen „Bot Start“, „Bot Täglich“ '
+          'und „Bot Wöchentlich“ in Crafty an und hält sie aktuell. Backups werden nur erstellt, '
+          'wenn der Server seit dem letzten Backup dieser Art online war'),
+    Field('backup', 'on_start', 'int', 5, None, 'Backups vor dem Start (Anzahl)',
+          'Vor /start wird ein Backup erstellt, der Server startet erst danach. '
+          'So viele werden behalten, ältere löscht Crafty. 0 = aus'),
+    Field('backup', 'daily', 'int', 7, None, 'Tägliche Backups (Anzahl)',
+          'So viele tägliche Backups werden behalten. 0 = aus'),
+    Field('backup', 'weekly', 'int', 4, None, 'Wöchentliche Backups (Anzahl)',
+          'So viele wöchentliche Backups werden behalten. 0 = aus'),
+    Field('backup', 'time', 'time', '04:00', None, 'Uhrzeit',
+          'Zu dieser Uhrzeit laufen die täglichen und wöchentlichen Backups. War der Bot zu der Zeit aus, '
+          'holt er sie beim nächsten Start nach'),
+    Field('backup', 'weekday', 'weekday', 6, None, 'Wochentag für wöchentliche Backups',
+          'An diesem Tag läuft zusätzlich zum täglichen das wöchentliche Backup'),
+    Field('backup', 'timezone', 'timezone', 'Europe/Berlin', 'TZ', 'Zeitzone',
+          'Zeitzone für die Uhrzeit, z. B. Europe/Berlin'),
+    Field('backup', 'compress', 'bool', True, None, 'Komprimieren',
+          'Backups als komprimiertes ZIP speichern. Spart meist 30–50 % Platz, dauert etwas länger'),
+    Field('backup', 'excluded_dirs', 'list', ['logs', 'crash-reports', 'cache', 'debug'], None,
+          'Ausgeschlossene Ordner',
+          'Ein Ordner pro Zeile, relativ zum Serverordner, z. B. logs oder plugins/dynmap/web/tiles',
+          details='Kann sicher weg (wird neu erzeugt oder ist nur zur Fehlersuche):\n'
+                  'logs, crash-reports, debug – Logdateien und Absturzberichte\n'
+                  'cache – Download-Cache von Paper/Spigot\n'
+                  'bluemap/web/maps oder plugins/BlueMap/web/maps – gerenderte BlueMap-Karten\n'
+                  'dynmap/web/tiles oder plugins/dynmap/web/tiles – gerenderte Dynmap-Karten\n'
+                  'plugins/squaremap/web/tiles – gerenderte squaremap-Karten\n'
+                  'Nur ausschließen, wenn du sie neu herunterladen kannst:\n'
+                  'libraries, versions, .fabric – Serverdateien des Loaders (Forge/Fabric), '
+                  'nach einer Wiederherstellung ggf. Installer erneut ausführen\n'
+                  'Nie ausschließen:\n'
+                  'world, world_nether, world_the_end (bzw. dein level-name) – die Welt selbst\n'
+                  'mods, plugins, config, defaultconfigs, kubejs – Mods, Plugins und ihre Einstellungen\n'
+                  'server.properties, ops.json, whitelist.json und andere Dateien im Hauptordner'),
+    Field('backup', 'before_command', 'str', 'save-off', None, 'Befehl vor dem Backup',
+          'Wird an laufende Server gesendet, damit die Welt während des Backups nicht geschrieben wird. Leer = keiner'),
+    Field('backup', 'after_command', 'str', 'save-on', None, 'Befehl nach dem Backup',
+          'Wird nach dem Backup an laufende Server gesendet. Leer = keiner'),
+    Field('backup', 'timeout', 'int', 600, None, 'Maximale Wartezeit beim Start (Sekunden)',
+          'So lange wartet /start auf das Backup. Danach startet der Server trotzdem'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
           'Port des Webinterfaces. In Docker 4883 lassen und stattdessen das Port-Mapping ändern'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
@@ -90,6 +137,29 @@ def parse_value(field: Field, raw):
         if value < 0:
             raise ValueError(f'{field.label}: must not be negative')
         return value
+    if field.kind == 'time':
+        match = re.fullmatch(r'(\d{1,2}):(\d{2})', str(raw or '').strip())
+        if not match or int(match[1]) > 23 or int(match[2]) > 59:
+            raise ValueError(f'{field.label}: expected HH:MM')
+        return f'{int(match[1]):02d}:{match[2]}'
+    if field.kind == 'weekday':
+        value = int(str(raw).strip())
+        if not 0 <= value <= 6:
+            raise ValueError(f'{field.label}: expected 0 (Monday) to 6 (Sunday)')
+        return value
+    if field.kind == 'timezone':
+        value = str(raw or '').strip()
+        try:
+            ZoneInfo(value)
+        except (ValueError, KeyError):
+            raise ValueError(f'{field.label}: unknown timezone') from None
+        return value
+    if field.kind == 'list':
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            raw = raw.splitlines()
+        return [str(item).strip().strip('/') for item in raw if str(item).strip().strip('/')]
     if field.kind == 'servers':
         if raw is None:
             return []

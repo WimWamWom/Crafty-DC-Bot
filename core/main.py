@@ -26,7 +26,8 @@ from core.status import StatusBoard
 from core.checks import command_channel_check, control_role
 from core.custom_help_command import CustomHelpCommand
 from core.web import WebInterface
-from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, GUILD_ID, STATUS_CHANNEL_ID,
+from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
+from core.constants import (AUTO_STOP_ENABLED, AUTO_STOP_SLEEP_TIME, BACKUP_ENABLED, GUILD_ID, STATUS_CHANNEL_ID,
                             STATUS_UPDATE_INTERVAL, WEB_PORT)
 
 SERVER_URL = get('crafty.url')
@@ -45,6 +46,10 @@ class CraftyBot(commands.Bot):
             print(f'status embed enabled in channel {STATUS_CHANNEL_ID}')
             update_status.start()
 
+        if BACKUP_ENABLED:
+            print('automatic backups enabled')
+            backup_loop.start()
+
         # Synchronize slash commands on startup
         try:
             synced = await self.tree.sync(guild=discord.Object(id=GUILD_ID))
@@ -59,6 +64,7 @@ bot = CraftyBot(command_prefix='>', intents=intents, help_command=CustomHelpComm
 bot.add_check(command_channel_check)
 
 status_board = StatusBoard(bot, STATUS_CHANNEL_ID)
+backup_scheduler = BackupScheduler()
 
 # track consecutive zero-player checks per server
 consecutive_zero = {}
@@ -115,8 +121,17 @@ async def update_status():
         traceback.print_exc()
 
 
+@tasks.loop(seconds=60)
+async def backup_loop():
+    """
+    Record which servers are online and run the scheduled backups.
+    """
+    await backup_scheduler.tick()
+
+
 @auto_stop.before_loop
 @update_status.before_loop
+@backup_loop.before_loop
 async def wait_until_ready():
     await bot.wait_until_ready()
 
@@ -191,7 +206,13 @@ async def start(ctx, server_id):
         await ctx.reply('Server already running', ephemeral=True)
         return
 
+    if needs_start_backup(server_id):
+        await ctx.reply('Creating a backup before starting, this can take a moment...', ephemeral=True)
+        if not await backup_before_start(server_id):
+            await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
+
     if await server_action(server_id, 'start_server'):
+        mark_started(server_id)
         await ctx.reply('Server started', ephemeral=True)
     else:
         await ctx.reply('failed to start server', ephemeral=True)
