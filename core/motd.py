@@ -6,14 +6,43 @@ The server reads server.properties when it starts, so a new MOTD is chosen befor
 by the bot and after every stop the bot sees, which also covers the next start from Crafty.
 """
 
+import json
+import os
 import random
 import re
 
-from core.config import KEEP_MOTD, get
+from core.config import CONFIG_PATH, KEEP_MOTD, get
 from core.properties import get_property, read_properties, set_property, write_properties
 
 # &a, &l, ... as an easier way to type § color codes
 COLOR_CODE = re.compile(r'&([0-9a-fk-orA-FK-OR])')
+
+# the last random messages per server, so they do not come again too soon
+HISTORY_PATH = os.path.join(os.path.dirname(CONFIG_PATH), 'motd_history.json')
+# never more than this many remembered per server
+MAX_HISTORY = 50
+
+
+def _load_history() -> dict[str, list[str]]:
+    try:
+        with open(HISTORY_PATH, encoding='utf-8') as file:
+            data = json.load(file)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+history = _load_history()
+
+
+def _remember(server_id: str, message: str) -> None:
+    recent = [entry for entry in history.get(server_id, []) if entry != message] + [message]
+    history[server_id] = recent[-MAX_HISTORY:]
+    try:
+        with open(HISTORY_PATH, 'w', encoding='utf-8') as file:
+            json.dump(history, file, ensure_ascii=False)
+    except OSError as e:
+        print(f'motd: could not save {HISTORY_PATH}: {e}')
 
 
 def _choice(server_id: str) -> str | None:
@@ -71,11 +100,16 @@ def apply_motd(properties: str, server_id: str) -> str:
     fixed = _choice(server_id)
     if fixed is not None:
         return replace_motd(properties, encode(fixed))
-    # pick a different one than now if possible
+    messages = list(dict.fromkeys(get('motd.messages')))
+    # skip the current one and the last few, but always leave at least one to choose from
     current = current_motd(properties)
-    messages = get('motd.messages')
-    choices = [message for message in messages if decode(encode(message)) != current] or messages
-    return replace_motd(properties, encode(random.choice(choices)))
+    skip = min(max(get('motd.no_repeat'), 1), len(messages) - 1)
+    recent = set(history.get(server_id, [])[-skip:]) if skip else set()
+    fresh = [message for message in messages if message not in recent]
+    choices = [message for message in fresh if decode(encode(message)) != current] or fresh or messages
+    message = random.choice(choices)
+    _remember(server_id, message)
+    return replace_motd(properties, encode(message))
 
 
 async def set_motd(server_id: str) -> None:

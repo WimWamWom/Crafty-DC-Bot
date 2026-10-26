@@ -20,7 +20,7 @@ import aiohttp
 from core import config as cfg
 from core.config import get
 from core.constants import API_ENDPOINT
-from core.network import HttpMethod, send_request
+from core.network import HttpMethod, send_request, upload_file
 from core.server import get_server_stats, get_servers, server_action
 
 # kind -> (name of the backup configuration in Crafty, config key with the number of backups to keep)
@@ -93,6 +93,8 @@ state = BackupState()
 backup_ids: dict[str, dict[str, str]] = {}
 # only one backup at a time, so scheduled backups and /start do not compete for the disk
 backup_lock = asyncio.Lock()
+# how long a start backup in the background waits for the server to come up
+BACKGROUND_START_WAIT = 600
 
 
 async def _request(path: str, method: HttpMethod = HttpMethod.GET, data: dict = None) -> tuple[int, dict]:
@@ -327,6 +329,38 @@ async def backup_before_start(server_id: str) -> bool:
     """
     Create the backup before a server is started. Returns True if it was created.
     """
+    return await run_backup(server_id, 'start', max(get('backup.timeout'), 30))
+
+
+async def send_console(server_id: str, command: str) -> bool:
+    """
+    Send a command to the console of a running server.
+    """
+    response = await asyncio.to_thread(upload_file, f'{API_ENDPOINT}{server_id}/stdin', command.encode(),
+                                       {'Content-Type': 'text/plain'})
+    return response.status_code == 200
+
+
+async def backup_while_running(server_id: str) -> bool:
+    """
+    Create the start backup of a server that was just started, once it answers.
+
+    save-all flush writes everything to disk first, then Crafty sends the command before the backup (save-off),
+    so the world does not change while it is zipped. Returns True if the backup was created.
+    """
+    deadline = time.time() + BACKGROUND_START_WAIT
+    while True:
+        stats = await get_server_stats(server_id) or {}
+        # the version comes from the ping, so the world is loaded and the console takes commands
+        if stats.get('running') and stats.get('version'):
+            break
+        if time.time() > deadline:
+            print(f'backup: {server_id} did not come up, no start backup')
+            return False
+        await asyncio.sleep(5)
+    if not await send_console(server_id, 'save-all flush'):
+        print(f'backup: could not send save-all to {server_id}, does the API token have the COMMANDS permission?')
+    await asyncio.sleep(5)
     return await run_backup(server_id, 'start', max(get('backup.timeout'), 30))
 
 

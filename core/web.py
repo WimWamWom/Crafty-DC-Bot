@@ -658,12 +658,12 @@ TABS = {
         ('Domain pro Server', ['address.fixed']),
     ]),
     'motd': ('MOTD & Icon', 'Text und Bild neben dem Servernamen in der Serverliste.', [
-        ('Zufällige MOTD', ['motd.enabled', 'motd.messages']),
+        ('Zufällige MOTD', ['motd.enabled', 'motd.messages', 'motd.no_repeat']),
         ('Icon & MOTD pro Server', ['motd.servers']),
     ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
-        ('Zeitplan und Anzahl', ['backup.on_start', 'backup.daily', 'backup.weekly',
+        ('Zeitplan und Anzahl', ['backup.on_start', 'backup.start_in_background', 'backup.daily', 'backup.weekly',
                                  'backup.time', 'backup.weekday', 'backup.timezone']),
         ('Inhalt', ['backup.excluded_dirs', 'backup.before_command', 'backup.after_command', 'backup.timeout']),
         ('Server ohne Backups', ['backup.excluded_servers', 'backup.delete_excluded']),

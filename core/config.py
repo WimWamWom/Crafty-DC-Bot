@@ -126,6 +126,9 @@ FIELDS = [
           'Crafty-Backups bleiben, beim nächsten Start gibt es wieder ein Backup. 0 = nie'),
     Field('backup', 'on_start', 'int', 5, None, 'Backups vor dem Start (Anzahl)',
           'Vor jedem /start wird erst gesichert, dann gestartet. So viele bleiben, ältere werden gelöscht. 0 = aus'),
+    Field('backup', 'start_in_background', 'bool', False, None, 'Start-Backup im Hintergrund',
+          'Der Server startet sofort, gesichert wird, sobald er online ist: erst save-all flush, dann der Befehl '
+          'vor dem Backup. Der Start geht schneller, beim Zippen kann der Server kurz ruckeln'),
     Field('backup', 'daily', 'int', 7, None, 'Tägliche Backups (Anzahl)',
           'So viele tägliche Backups bleiben. 0 = aus'),
     Field('backup', 'weekly', 'int', 4, None, 'Wöchentliche Backups (Anzahl)',
@@ -163,6 +166,9 @@ FIELDS = [
     Field('motd', 'enabled', 'bool', False, None, 'MOTD vom Bot setzen',
           'Die MOTD ist der Text unter dem Servernamen in der Serverliste. Bei jedem Start setzt der Bot eine '
           'zufällige Nachricht aus der Liste oder die feste MOTD des Servers. Braucht das Recht FILES'),
+    Field('motd', 'no_repeat', 'int', 3, None, 'Keine Wiederholung der letzten',
+          'So viele zuletzt gezeigte Nachrichten kommen pro Server nicht gleich wieder. Bei kurzer Liste '
+          'entsprechend weniger, 0 = nur nicht zweimal hintereinander'),
     Field('motd', 'messages', 'lines', [], None, 'Nachrichten',
           'Jede Zeile zeigt eine Nachricht so, wie sie in der Serverliste aussieht. Mit Bearbeiten '
           'änderst du sie samt Farben, Speichern übernimmt alle Änderungen'),
