@@ -29,7 +29,8 @@ from core.sessions import STARTING, SessionTracker
 from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
-from core.backup import BackupScheduler, backup_before_start, mark_started, needs_start_backup
+from core.backup import (BackupScheduler, backup_before_start, backup_while_running, mark_started,
+                         needs_start_backup)
 from core.icon import set_icon
 from core.motd import set_motd
 from core.address import has_free_domain, prepare_start
@@ -73,6 +74,21 @@ def auto_stop_eta(server_id: str) -> float | None:
     if not auto_stop_enabled():
         return None
     return empty_since.get(server_id, time.time()) + auto_stop_idle_time()
+
+
+# start backups running in the background, kept so they are not garbage collected
+background_tasks: set[asyncio.Task] = set()
+
+
+async def start_backup_in_background(server_id: str, session) -> None:
+    """
+    Back up a server that was just started and show the progress in its start message.
+    """
+    if session is not None:
+        await sessions.update(session, note='💾 Creating a backup once the server is up')
+    ok = await backup_while_running(server_id)
+    if session is not None:
+        await sessions.update(session, note='💾 Backup created' if ok else 'Backup failed, check the backups in Crafty')
 
 
 async def after_stop(server_id: str) -> None:
@@ -238,18 +254,20 @@ async def start(ctx, server_id):
         return
 
     backup = needs_start_backup(server_id)
+    # back up after the start instead of before it, once the server is up
+    background_backup = backup and get('backup.start_in_background')
     session = None
     if session_enabled():
         server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),
                       {'server_id': server_id, 'server_name': server_id})
         # the embed is the public answer, as a reply to the message for > commands
-        session = await sessions.begin(server, ctx.author.mention, ctx.channel, backup,
+        session = await sessions.begin(server, ctx.author.mention, ctx.channel, backup and not background_backup,
                                        reference=ctx.message if ctx.interaction is None else None)
         if ctx.interaction is not None:
             link = f': {session.message.jump_url}' if session.message else ''
             await ctx.reply(f'Starting {server["server_name"]}{link}', ephemeral=True)
 
-    if backup:
+    if backup and not background_backup:
         if session is None:
             await ctx.reply('Creating a backup before starting, this can take a moment...', ephemeral=True)
         backup_ok = await backup_before_start(server_id)
@@ -273,6 +291,10 @@ async def start(ctx, server_id):
         mark_started(server_id)
         if session is None:
             await ctx.reply('Server started', ephemeral=True)
+        if background_backup:
+            task = asyncio.create_task(start_backup_in_background(server_id, session))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
     else:
         if session is not None:
             await sessions.fail(session, 'failed to start')

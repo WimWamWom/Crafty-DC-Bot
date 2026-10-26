@@ -109,11 +109,14 @@ If a required setting is missing, only the web interface starts.
 | `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name) |
 
 The backup settings (`backup.*`: on/off, how many backups to keep, time, excluded servers and folders) are
-only available in `config.yaml` and the web interface.
+only available in `config.yaml` and the web interface. With `backup.start_in_background` the server starts right away
+and the start backup runs once it is up (`save-all flush`, then the command before the backup, usually `save-off`),
+instead of before the start.
 
 The MOTD (`motd.*`: on/off, the messages, the MOTD per server) is also only set there. Before every start and
 restart by the bot and after every stop it sees, the bot writes a random message from the list as `motd` into
-`server.properties`. It changes once per server start, not on every refresh of the server list.
+`server.properties`. It changes once per server start, not on every refresh of the server list, and the last
+`motd.no_repeat` messages of a server (remembered in `motd_history.json`) do not come again.
 Under "MOTD pro Server" a server can instead get a fixed MOTD that it always shows, or keep its MOTD untouched.
 Use `&a`, `&l` and so on for colors and formatting and `\n` for a second line.
 
