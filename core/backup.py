@@ -361,7 +361,8 @@ async def backup_while_running(server_id: str) -> bool:
     if not await send_console(server_id, 'save-all flush'):
         print(f'backup: could not send save-all to {server_id}, does the API token have the COMMANDS permission?')
     await asyncio.sleep(5)
-    return await run_backup(server_id, 'start', max(get('backup.timeout'), 30))
+    # nobody waits for this backup, so it may take as long as a scheduled one (backup.timeout is for the start)
+    return await run_backup(server_id, 'start', SCHEDULED_TIMEOUT)
 
 
 def mark_started(server_id: str) -> None:
