@@ -663,7 +663,7 @@ TABS = {
     ]),
     'backup': ('Backups', 'Automatische Backups, die der Bot in Crafty anlegt und aufräumt.', [
         ('Allgemein', ['backup.enabled', 'backup.compress']),
-        ('Zeitplan und Anzahl', ['backup.on_start', 'backup.start_in_background', 'backup.daily', 'backup.weekly',
+        ('Zeitplan und Anzahl', ['backup.on_start', 'backup.mode', 'backup.daily', 'backup.weekly',
                                  'backup.time', 'backup.weekday', 'backup.timezone']),
         ('Inhalt', ['backup.excluded_dirs', 'backup.before_command', 'backup.after_command', 'backup.timeout']),
         ('Server ohne Backups', ['backup.excluded_servers', 'backup.delete_excluded']),
@@ -1061,6 +1061,11 @@ class WebInterface:
         if field.kind == 'weekday':
             options = ''.join(f'<option value="{day}"{" selected" if day == value else ""}>{day_name}</option>'
                               for day, day_name in enumerate(WEEKDAYS))
+            return f'{open_tag}{label}<select id="{name}" name="{name}">{options}</select>{help_text}</div>'
+
+        if field.kind == 'choice':
+            options = ''.join(f'<option value="{escape(choice)}"{" selected" if choice == value else ""}>'
+                              f'{escape(choice_label)}</option>' for choice, choice_label in field.choices)
             return f'{open_tag}{label}<select id="{name}" name="{name}">{options}</select>{help_text}</div>'
 
         if field.kind == 'time':

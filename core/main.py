@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from core import logtime
+logtime.install()
+
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
@@ -29,8 +32,8 @@ from core.sessions import STARTING, SessionTracker
 from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
 from core.web import WebInterface
-from core.backup import (BackupScheduler, backup_before_start, backup_while_running, mark_started,
-                         needs_start_backup)
+from core.backup import (BackupScheduler, backup_after_stop, backup_before_start, backup_while_running, mark_started,
+                         needs_start_backup, wait_for_running_backup)
 from core.icon import set_icon
 from core.motd import set_motd
 from core.address import has_free_domain, prepare_start
@@ -97,6 +100,7 @@ async def after_stop(server_id: str) -> None:
     """
     await set_motd(server_id)
     await set_icon(server_id)
+    await backup_after_stop(server_id)
 
 
 sessions = SessionTracker(bot, session_channel_id, auto_stop_eta, after_stop)
@@ -253,9 +257,16 @@ async def start(ctx, server_id):
                         else 'No free domain for this server, stop a server first', ephemeral=True)
         return
 
-    backup = needs_start_backup(server_id)
+    mode = get('backup.mode')
+    # with backups after the stop, the last one may still be running: the world must not change while it is zipped
+    if mode == 'after_stop' and not await wait_for_running_backup(server_id, 0):
+        await ctx.reply('Waiting for the backup of the last session to finish...', ephemeral=True)
+        if not await wait_for_running_backup(server_id, max(get('backup.timeout'), 30)):
+            await ctx.reply('The backup of the last session is still running, try again later', ephemeral=True)
+            return
+    backup = mode != 'after_stop' and needs_start_backup(server_id)
     # back up after the start instead of before it, once the server is up
-    background_backup = backup and get('backup.start_in_background')
+    background_backup = backup and mode == 'background'
     session = None
     if session_enabled():
         server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),

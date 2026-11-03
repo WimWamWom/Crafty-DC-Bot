@@ -109,9 +109,10 @@ If a required setting is missing, only the web interface starts.
 | `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name) |
 
 The backup settings (`backup.*`: on/off, how many backups to keep, time, excluded servers and folders) are
-only available in `config.yaml` and the web interface. With `backup.start_in_background` the server starts right away
-and the start backup runs once it is up (`save-all flush`, then the command before the backup, usually `save-off`),
-instead of before the start.
+only available in `config.yaml` and the web interface. `backup.mode` sets when the backup of a play session is made:
+`before` (default) backs up first and then starts, `background` starts right away and backs up once the server is up
+(`save-all flush`, then the command before the backup, usually `save-off`), `after_stop` backs up once the server is
+stopped (by `/stop`, auto stop or in Crafty), and a `/start` during that backup waits until it is done.
 
 The MOTD (`motd.*`: on/off, the messages, the MOTD per server) is also only set there. Before every start and
 restart by the bot and after every stop it sees, the bot writes a random message from the list as `motd` into

@@ -30,7 +30,7 @@ class Field:
     section: str
     key: str
     # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, server_motds, server_order,
-    # time, weekday or timezone
+    # time, weekday, timezone or choice
     kind: str
     default: object
     env: str | None
@@ -39,6 +39,8 @@ class Field:
     required: bool = False
     # longer hints shown in a collapsible box in the web interface, one per line
     details: str = ''
+    # (value, label) pairs of a choice field
+    choices: tuple = ()
 
 
 SECTIONS = {
@@ -124,11 +126,15 @@ FIELDS = [
     Field('backup', 'delete_after_days', 'int', 0, None, 'Bot-Backups löschen nach (Tagen aus)',
           'War ein Server so viele Tage aus, löscht der Bot seine Bot-Backups. Die Welt und deine eigenen '
           'Crafty-Backups bleiben, beim nächsten Start gibt es wieder ein Backup. 0 = nie'),
-    Field('backup', 'on_start', 'int', 5, None, 'Backups vor dem Start (Anzahl)',
-          'Vor jedem /start wird erst gesichert, dann gestartet. So viele bleiben, ältere werden gelöscht. 0 = aus'),
-    Field('backup', 'start_in_background', 'bool', False, None, 'Start-Backup im Hintergrund',
-          'Der Server startet sofort, gesichert wird, sobald er online ist: erst save-all flush, dann der Befehl '
-          'vor dem Backup. Der Start geht schneller, beim Zippen kann der Server kurz ruckeln'),
+    Field('backup', 'on_start', 'int', 5, None, 'Backups beim Start oder Stopp (Anzahl)',
+          'Ein Backup pro Spielrunde, wann genau steht darunter. So viele bleiben, ältere werden gelöscht. 0 = aus'),
+    Field('backup', 'mode', 'choice', 'before', None, 'Wann gesichert wird',
+          'Vor dem Start: /start sichert erst, dann startet der Server. Im Hintergrund: der Server startet sofort, '
+          'gesichert wird, sobald er online ist (save-all flush, dann der Befehl vor dem Backup), beim Zippen kann '
+          'er kurz ruckeln. Nach dem Stopp: gesichert wird, sobald der Server aus ist, egal ob per /stop, Auto-Stop '
+          'oder in Crafty gestoppt. Ein /start während des Backups wartet, bis es fertig ist',
+          choices=(('before', 'Vor dem Start'), ('background', 'Nach dem Start im Hintergrund'),
+                   ('after_stop', 'Nach dem Stopp'))),
     Field('backup', 'daily', 'int', 7, None, 'Tägliche Backups (Anzahl)',
           'So viele tägliche Backups bleiben. 0 = aus'),
     Field('backup', 'weekly', 'int', 4, None, 'Wöchentliche Backups (Anzahl)',
@@ -278,6 +284,11 @@ def parse_value(field: Field, raw):
             raise ValueError(f'{field.label}: expected server ID: message')
         return {str(server_id).strip(): str(choice).strip() for server_id, choice in raw.items()
                 if str(server_id).strip() and str(choice or '').strip()}
+    if field.kind == 'choice':
+        value = str(raw or '').strip()
+        if value not in [choice for choice, _ in field.choices]:
+            raise ValueError(f'{field.label}: unknown choice {value}')
+        return value
     if field.kind in ('servers', 'server_order'):
         if raw is None:
             return []
@@ -330,6 +341,10 @@ def load() -> dict:
     old_keep = (file_data.get('motd') or {}).get('excluded_servers')
     if 'motd.servers' in missing and old_keep:
         values['motd.servers'] = {str(server_id): KEEP_MOTD for server_id in old_keep}
+
+    # Older configs only know a switch for the start backup in the background
+    if 'backup.mode' in missing and (file_data.get('backup') or {}).get('start_in_background') is True:
+        values['backup.mode'] = 'background'
 
     # Older configs have no switches: switch on what already has an ID
     for toggle, target in TOGGLES.items():

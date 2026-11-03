@@ -1,6 +1,8 @@
 """This module contains functions to query and control Crafty servers."""
 
 import ast
+import asyncio
+import time
 
 from core.constants import API_ENDPOINT, allowed_servers, server_order
 from core.network import get_json_response, HttpMethod
@@ -24,15 +26,42 @@ async def get_servers(include_all: bool = False) -> list[dict] | None:
     return [server for server in servers if server['server_id'] in allowed]
 
 
+# Crafty updates the stats every few seconds, and several loops ask for them at the same time,
+# so they share one request per server
+STATS_MAX_AGE = 5
+# server_id -> (time, stats) of the last answer, and the requests that are still running
+_stats_cache: dict[str, tuple[float, dict | None]] = {}
+_stats_requests: dict[str, asyncio.Future] = {}
+
+
+async def _fetch_stats(server_id: str) -> dict | None:
+    data = await get_json_response(API_ENDPOINT + server_id + '/stats', f'failed to get server stats of {server_id}')
+    if not data or 'data' not in data:
+        return None
+    return data['data']
+
+
 async def get_server_stats(server_id) -> dict | None:
     """
     Get the stats of the server with the specified ID. Returns None on error.
     """
-    data = await get_json_response(API_ENDPOINT + str(server_id) + '/stats',
-                                   'failed to get server stats')
-    if not data or 'data' not in data:
-        return None
-    return data['data']
+    server_id = str(server_id)
+    cached = _stats_cache.get(server_id)
+    if cached and time.time() - cached[0] < STATS_MAX_AGE:
+        return cached[1]
+    request = _stats_requests.get(server_id)
+    if request is None:
+        request = asyncio.ensure_future(_fetch_stats(server_id))
+        _stats_requests[server_id] = request
+        try:
+            stats = await asyncio.shield(request)
+        finally:
+            _stats_requests.pop(server_id, None)
+        # errors are not cached, the next caller asks again
+        if stats is not None:
+            _stats_cache[server_id] = (time.time(), stats)
+        return stats
+    return await asyncio.shield(request)
 
 
 async def server_action(server_id, action: str) -> bool:
@@ -43,6 +72,8 @@ async def server_action(server_id, action: str) -> bool:
                                    f'failed to run {action}', method=HttpMethod.POST)
     if data.get('status') == "ok":
         print(action, str(server_id))
+        # the server changes now, do not answer from old stats
+        _stats_cache.pop(str(server_id), None)
         return True
     return False
 

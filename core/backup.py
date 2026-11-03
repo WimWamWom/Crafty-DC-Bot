@@ -95,6 +95,8 @@ backup_ids: dict[str, dict[str, str]] = {}
 backup_lock = asyncio.Lock()
 # how long a start backup in the background waits for the server to come up
 BACKGROUND_START_WAIT = 600
+# servers with a backup running now, so /start can wait for a backup after the stop
+running: dict[str, asyncio.Event] = {}
 
 
 async def _request(path: str, method: HttpMethod = HttpMethod.GET, data: dict = None) -> tuple[int, dict]:
@@ -232,6 +234,7 @@ async def run_backup(server_id: str, kind: str, timeout: float) -> bool:
     except asyncio.TimeoutError:
         print(f'backup: another backup is still running, skipping "{KINDS[kind][0]}" for {server_id}')
         return False
+    done = running[server_id] = asyncio.Event()
     try:
         started = time.time()
         async with aiohttp.ClientSession() as session:
@@ -249,6 +252,9 @@ async def run_backup(server_id: str, kind: str, timeout: float) -> bool:
         return False
     finally:
         backup_lock.release()
+        done.set()
+        if running.get(server_id) is done:
+            del running[server_id]
 
     # Crafty marks failed backups in the status of the configuration
     status, conf = await _request(f'{API_ENDPOINT}{server_id}/backups/backup/{backup_id}')
@@ -273,6 +279,35 @@ def is_excluded(server_id: str) -> bool:
 def needs_start_backup(server_id: str) -> bool:
     return (get('backup.enabled') and get('backup.on_start') > 0 and not is_excluded(server_id)
             and state.was_online_since_backup(server_id, 'start'))
+
+
+async def wait_for_running_backup(server_id: str, timeout: float) -> bool:
+    """
+    Wait until a backup of the server that is running now is finished. Returns False if it took too long.
+    """
+    done = running.get(server_id)
+    if done is None:
+        return True
+    try:
+        await asyncio.wait_for(done.wait(), timeout)
+        return True
+    except asyncio.TimeoutError:
+        return False
+
+
+async def backup_after_stop(server_id: str) -> bool:
+    """
+    Create the backup of a server that was just stopped, if it was online since its last one.
+    The server is off, so nothing changes while it is zipped. Returns True if it was created.
+    """
+    if get('backup.mode') != 'after_stop' or not needs_start_backup(server_id):
+        return False
+    stats = await get_server_stats(server_id)
+    if stats is None or stats.get('running'):
+        # started again in the meantime, the next stop backs it up
+        return False
+    # nobody waits for this backup, so it may take as long as a scheduled one
+    return await run_backup(server_id, 'start', SCHEDULED_TIMEOUT)
 
 
 async def delete_bot_backups(server_id: str) -> int:
