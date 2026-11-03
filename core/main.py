@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from core import logtime
+logtime.install()
+
 # Load environment variables from .env file (used for settings missing in the config file)
 load_dotenv()
 from core.config import get
