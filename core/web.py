@@ -642,7 +642,7 @@ TABS = {
     'connection': ('Verbindung', 'Was du einmal einrichtest: Crafty, der Discord-Bot und der Zugang zu dieser Seite.', [
         ('Crafty', ['crafty.url', 'crafty.token']),
         ('Discord-Bot', ['discord.token', 'discord.guild_id']),
-        ('Webinterface', ['web.port', 'web.password']),
+        ('Webinterface', ['web.port', 'web.username', 'web.password']),
     ]),
     'discord': ('Discord', 'Wer den Bot wo benutzen darf und wo er schreibt.', [
         ('Befehlskanal', ['discord.command_channel_enabled', 'discord.command_channel_id']),
@@ -771,21 +771,23 @@ class WebInterface:
     @web.middleware
     async def auth_middleware(self, request: web.Request, handler):
         password = cfg.config['web.password']
-        if password and not self._check_password(request, password):
+        if password and not self._check_login(request, cfg.config['web.username'], password):
             return web.Response(status=401, text='Login required',
                                 headers={'WWW-Authenticate': 'Basic realm="Crafty Bot"'})
         return await handler(request)
 
     @staticmethod
-    def _check_password(request: web.Request, password: str) -> bool:
+    def _check_login(request: web.Request, username: str, password: str) -> bool:
+        # an empty user name accepts any user name, so a password-only setup keeps working
         header = request.headers.get('Authorization', '')
         if not header.startswith('Basic '):
             return False
         try:
-            _, _, given = base64.b64decode(header[6:]).decode().partition(':')
+            given_user, _, given = base64.b64decode(header[6:]).decode().partition(':')
         except (binascii.Error, UnicodeDecodeError):
             return False
-        return hmac.compare_digest(given.encode(), password.encode())
+        user_ok = not username or hmac.compare_digest(given_user.encode(), username.encode())
+        return hmac.compare_digest(given.encode(), password.encode()) and user_ok
 
     def _guild(self) -> discord.Guild | None:
         if not self.bot.is_ready() or not cfg.config['discord.guild_id']:

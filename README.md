@@ -110,7 +110,8 @@ If a required setting is missing, only the web interface starts.
 | `session.enabled` | `SESSION_ENABLED` | Post a message for every server start (default on) |
 | `session.channel_id` | `SESSION_CHANNEL_ID` | Channel for these messages, also for servers started outside the bot. Empty = channel of `/start`, other starts in the command channel |
 | `web.port` | `WEB_PORT` | Port of the web interface (default 4883) |
-| `web.password` | `WEB_PASSWORD` | Password for the web interface (any user name) |
+| `web.username` | `WEB_USERNAME` | User name for the web interface login. Empty = any user name |
+| `web.password` | `WEB_PASSWORD` | Password for the web interface. Empty = no login |
 
 The backup settings (`backup.*`: on/off, how many backups to keep, time, excluded servers and folders) are
 only available in `config.yaml` and the web interface. `backup.mode` sets when the backup of a play session is made:

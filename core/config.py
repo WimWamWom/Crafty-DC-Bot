@@ -204,8 +204,10 @@ FIELDS = [
           'zugeschnitten, als PNG mit 64x64 Pixeln gespeichert und gilt ab dem nächsten Start'),
     Field('web', 'port', 'int', 4883, 'WEB_PORT', 'Port',
           'In Docker 4883 lassen und nur das Port-Mapping ändern'),
+    Field('web', 'username', 'str', '', 'WEB_USERNAME', 'Benutzername',
+          'Benutzername für den Login. Leer = jeder Benutzername geht, nur das Passwort zählt'),
     Field('web', 'password', 'secret', '', 'WEB_PASSWORD', 'Passwort',
-          'Schützt das Webinterface (Benutzername egal). Leer = kein Passwort'),
+          'Schützt das Webinterface. Leer = kein Login'),
 ]
 
 FIELDS_BY_NAME = {f'{field.section}.{field.key}': field for field in FIELDS}
