@@ -31,14 +31,16 @@ from core.status import StatusBoard
 from core.sessions import STARTING, SessionTracker
 from core.checks import command_channel_check, control_role
 from core.views import ServerStatsView
+from core.panel import PanelButton, PanelBoard
 from core.web import WebInterface
 from core.backup import (BackupScheduler, backup_after_stop, backup_before_start, backup_while_running, mark_started,
                          needs_start_backup, wait_for_running_backup)
 from core.icon import set_icon
 from core.motd import set_motd
 from core.address import has_free_domain, prepare_start
-from core.constants import (GUILD_ID, WEB_PORT, auto_stop_enabled, auto_stop_idle_time, session_channel_id,
-                            session_enabled, status_channel_id, status_update_interval)
+from core.constants import (GUILD_ID, WEB_PORT, auto_stop_enabled, auto_stop_idle_time, panel_channel_ids,
+                            panel_channels, panel_mode, session_channel_id, session_enabled, status_channel_id,
+                            status_update_interval)
 
 
 class CraftyBot(commands.Bot):
@@ -49,6 +51,9 @@ class CraftyBot(commands.Bot):
         update_status.start()
         update_sessions.start()
         backup_loop.start()
+        update_panels.start()
+        # the panel buttons keep working after a restart
+        self.add_dynamic_items(PanelButton)
 
         # Synchronize slash commands on startup
         try:
@@ -180,10 +185,23 @@ async def backup_loop():
     await backup_scheduler.tick()
 
 
+@tasks.loop(seconds=15)
+async def update_panels():
+    """
+    Update the panels in the channels of the servers.
+    """
+    try:
+        await panels.update()
+    except Exception:
+        # keep the loop alive on unexpected errors (e.g. missing permissions)
+        traceback.print_exc()
+
+
 @auto_stop.before_loop
 @update_status.before_loop
 @update_sessions.before_loop
 @backup_loop.before_loop
+@update_panels.before_loop
 async def wait_until_ready():
     await bot.wait_until_ready()
 
@@ -194,6 +212,21 @@ async def on_ready():
     print("Crafty Bot version 0.2.0")
     print("Server URL: {}".format(get('crafty.url')))
     print("GUILD ID: {}".format(GUILD_ID))
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    # a panel channel is for the panels: no command is answered there, other messages are deleted
+    # or the panels are posted again below them
+    if message.guild is not None and message.channel.id in panel_channel_ids():
+        if message.author.id != bot.user.id:
+            mode = panel_mode()
+            if mode == 'delete':
+                await panels.clean(message)
+            elif mode == 'bottom':
+                panels.notice(message)
+        return
+    await bot.process_commands(message)
 
 
 @bot.hybrid_command(name='help', description='list all commands')
@@ -229,6 +262,106 @@ async def stats(ctx):
     view.message = await ctx.reply(embed=embed, view=view, ephemeral=True)
 
 
+def panel_refusal(server_id: str) -> str | None:
+    """
+    Why a command must not control the server: it has its own channel and is only controlled with its panel there.
+    """
+    channel_id = panel_channels().get(server_id)
+    if channel_id:
+        return f'This server is controlled with the buttons in <#{channel_id}>'
+    return None
+
+
+async def start_flow(server: dict, started_by: str, reply, channel=None, reference=None, progress=None) -> bool:
+    """
+    Start a server: back it up if needed, give it a domain and its icon, and show the start in its session message.
+
+    Args:
+        server: The server from Crafty.
+        started_by: Mention of the user who started it.
+        reply: Coroutine function that sends a short answer only the user sees.
+        channel: Channel for the session message if no session channel is set (None = none).
+        reference: Message the session message answers (for > commands).
+        progress: Coroutine function called with each step, used by the panel.
+
+    Returns:
+        bool: True if the server was started.
+    """
+    server_id = server['server_id']
+
+    async def no_progress(text: str) -> None:
+        pass
+
+    progress = progress or no_progress
+
+    # check if server is already running
+    running = await is_server_running(server_id)
+    if running is None:
+        await reply('failed to get server stats')
+        return False
+    if running:
+        await reply('Server already running')
+        return False
+
+    # check before the backup, prepare_start checks again and takes the domain
+    free = await has_free_domain(server_id)
+    if not free:
+        await reply('failed to check which domains are free' if free is None
+                    else 'No free domain for this server, stop a server first')
+        return False
+
+    mode = get('backup.mode')
+    # with backups after the stop, the last one may still be running: the world must not change while it is zipped
+    if mode == 'after_stop' and not await wait_for_running_backup(server_id, 0):
+        await progress('Waiting for the backup of the last session')
+        await reply('Waiting for the backup of the last session to finish...')
+        if not await wait_for_running_backup(server_id, max(get('backup.timeout'), 30)):
+            await reply('The backup of the last session is still running, try again later')
+            return False
+    backup = mode != 'after_stop' and needs_start_backup(server_id)
+    # back up after the start instead of before it, once the server is up
+    background_backup = backup and mode == 'background'
+    session = None
+    if session_enabled():
+        # the embed is the public answer, as a reply to the message for > commands
+        session = await sessions.begin(server, started_by, channel, backup and not background_backup,
+                                       reference=reference)
+
+    if backup and not background_backup:
+        await progress('Creating a backup, the server starts afterwards')
+        if session is None and channel is not None:
+            await reply('Creating a backup before starting, this can take a moment...')
+        backup_ok = await backup_before_start(server_id)
+        if session is not None:
+            await sessions.update(session, phase=STARTING,
+                                  note=None if backup_ok else 'Backup failed, check the backups in Crafty')
+        if not backup_ok:
+            await reply('Backup failed, starting the server anyway. Check the backups in Crafty')
+
+    await progress('Starting')
+    domain, error = await prepare_start(server_id)
+    if error is not None:
+        if session is not None:
+            await sessions.fail(session, error)
+        await reply(f'failed to start server: {error}')
+        return False
+    if domain is not None and session is not None:
+        await sessions.update(session, address=domain)
+    await set_icon(server_id)
+
+    if await server_action(server_id, 'start_server'):
+        mark_started(server_id)
+        if background_backup:
+            task = asyncio.create_task(start_backup_in_background(server_id, session))
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+        return True
+    if session is not None:
+        await sessions.fail(session, 'failed to start')
+    await reply('failed to start server')
+    return False
+
+
 # start a server
 @bot.hybrid_command(name='start', description='start a server')
 @app_commands.guilds(discord.Object(id=GUILD_ID))
@@ -239,99 +372,90 @@ async def start(ctx, server_id):
 
     if not await check_server_id(server_id, ctx):
         return
+    refusal = panel_refusal(server_id)
+    if refusal:
+        await ctx.reply(refusal, ephemeral=True)
+        return
 
     await ctx.defer(ephemeral=True)
-    # check if server is already running
-    running = await is_server_running(server_id)
-    if running is None:
-        await ctx.reply('failed to get server stats', ephemeral=True)
-        return
-    if running:
-        await ctx.reply('Server already running', ephemeral=True)
-        return
+    server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),
+                  {'server_id': server_id, 'server_name': server_id})
 
-    # check before the backup, prepare_start checks again and takes the domain
-    free = await has_free_domain(server_id)
-    if not free:
-        await ctx.reply('failed to check which domains are free' if free is None
-                        else 'No free domain for this server, stop a server first', ephemeral=True)
-        return
+    async def reply(text: str) -> None:
+        await ctx.reply(text, ephemeral=True)
 
-    mode = get('backup.mode')
-    # with backups after the stop, the last one may still be running: the world must not change while it is zipped
-    if mode == 'after_stop' and not await wait_for_running_backup(server_id, 0):
-        await ctx.reply('Waiting for the backup of the last session to finish...', ephemeral=True)
-        if not await wait_for_running_backup(server_id, max(get('backup.timeout'), 30)):
-            await ctx.reply('The backup of the last session is still running, try again later', ephemeral=True)
+    linked = False
+
+    async def progress(text: str) -> None:
+        # with a session message, a slash command gets its link once it is posted
+        nonlocal linked
+        session = sessions.sessions.get(server_id)
+        if linked or session is None or ctx.interaction is None:
             return
-    backup = mode != 'after_stop' and needs_start_backup(server_id)
-    # back up after the start instead of before it, once the server is up
-    background_backup = backup and mode == 'background'
-    session = None
-    if session_enabled():
-        server = next((s for s in await get_cached_servers() or [] if s['server_id'] == server_id),
-                      {'server_id': server_id, 'server_name': server_id})
-        # the embed is the public answer, as a reply to the message for > commands
-        session = await sessions.begin(server, ctx.author.mention, ctx.channel, backup and not background_backup,
-                                       reference=ctx.message if ctx.interaction is None else None)
-        if ctx.interaction is not None:
-            link = f': {session.message.jump_url}' if session.message else ''
-            await ctx.reply(f'Starting {server["server_name"]}{link}', ephemeral=True)
+        linked = True
+        link = f': {session.message.jump_url}' if session.message else ''
+        await reply(f'Starting {server["server_name"]}{link}')
 
-    if backup and not background_backup:
-        if session is None:
-            await ctx.reply('Creating a backup before starting, this can take a moment...', ephemeral=True)
-        backup_ok = await backup_before_start(server_id)
-        if session is not None:
-            await sessions.update(session, phase=STARTING,
-                                  note=None if backup_ok else 'Backup failed, check the backups in Crafty')
-        elif not backup_ok:
-            await ctx.reply('Backup failed, starting the server anyway. Check the backups in Crafty', ephemeral=True)
-
-    domain, error = await prepare_start(server_id)
-    if error is not None:
-        if session is not None:
-            await sessions.fail(session, error)
-        await ctx.reply(f'failed to start server: {error}', ephemeral=True)
-        return
-    if domain is not None and session is not None:
-        await sessions.update(session, address=domain)
-    await set_icon(server_id)
-
-    if await server_action(server_id, 'start_server'):
-        mark_started(server_id)
-        if session is None:
-            await ctx.reply('Server started', ephemeral=True)
-        if background_backup:
-            task = asyncio.create_task(start_backup_in_background(server_id, session))
-            background_tasks.add(task)
-            task.add_done_callback(background_tasks.discard)
-    else:
-        if session is not None:
-            await sessions.fail(session, 'failed to start')
-        await ctx.reply('failed to start server', ephemeral=True)
+    ok = await start_flow(server, ctx.author.mention, reply, channel=ctx.channel,
+                          reference=ctx.message if ctx.interaction is None else None, progress=progress)
+    if ok and not session_enabled():
+        await reply('Server started')
 
 
-async def check_can_stop(ctx, server_id, action: str) -> bool:
+async def check_can_stop(reply, server_id, action: str) -> bool:
     """
     Check that the server is running and no players are online, and tell the user if not.
+
+    Args:
+        reply: Coroutine function that sends a short answer only the user sees.
     """
     running = await is_server_running(server_id)
     if running is None:
-        await ctx.reply('failed to get server stats', ephemeral=True)
+        await reply('failed to get server stats')
         return False
     if not running:
-        await ctx.reply('Server already stopped', ephemeral=True)
+        await reply('Server already stopped')
         return False
 
     player_count = await get_player_count(server_id)
     if player_count == -1:
-        await ctx.reply('failed to get server stats', ephemeral=True)
+        await reply('failed to get server stats')
         return False
     if player_count != 0:
-        await ctx.reply(f'cannot {action} server: {player_count} Player(s) online', ephemeral=True)
+        await reply(f'cannot {action} server: {player_count} Player(s) online')
         return False
     return True
+
+
+async def panel_start(server: dict, started_by: str, reply, progress) -> bool:
+    # the session message never goes into the panel channel, only into the session channel if one is set
+    return await start_flow(server, started_by, reply, progress=progress)
+
+
+async def panel_stop(server_id: str, stopped_by: str, reply) -> bool:
+    if not await check_can_stop(reply, server_id, 'stop'):
+        return False
+    sessions.set_stop_reason(server_id, f'stopped by {stopped_by}')
+    if await stop_server(server_id):
+        return True
+    sessions.set_stop_reason(server_id, None)
+    await reply('failed to stop server')
+    return False
+
+
+async def panel_restart(server_id: str, restarted_by: str, reply) -> bool:
+    if not await check_can_stop(reply, server_id, 'restart'):
+        return False
+    sessions.mark_restart(server_id)
+    await set_motd(server_id)
+    await set_icon(server_id)
+    if await server_action(server_id, 'restart_server'):
+        return True
+    await reply('failed to restart server')
+    return False
+
+
+panels = PanelBoard(bot, auto_stop_eta, panel_start, panel_stop, panel_restart)
 
 
 # stop a server
@@ -344,9 +468,13 @@ async def stop(ctx, server_id):
 
     if not await check_server_id(server_id, ctx):
         return
+    refusal = panel_refusal(server_id)
+    if refusal:
+        await ctx.reply(refusal, ephemeral=True)
+        return
 
     await ctx.defer(ephemeral=True)
-    if not await check_can_stop(ctx, server_id, 'stop'):
+    if not await check_can_stop(lambda text: ctx.reply(text, ephemeral=True), server_id, 'stop'):
         return
 
     sessions.set_stop_reason(server_id, f'/stop by {ctx.author.mention}')
@@ -367,9 +495,13 @@ async def restart(ctx, server_id):
 
     if not await check_server_id(server_id, ctx):
         return
+    refusal = panel_refusal(server_id)
+    if refusal:
+        await ctx.reply(refusal, ephemeral=True)
+        return
 
     await ctx.defer(ephemeral=True)
-    if not await check_can_stop(ctx, server_id, 'restart'):
+    if not await check_can_stop(lambda text: ctx.reply(text, ephemeral=True), server_id, 'restart'):
         return
 
     sessions.mark_restart(server_id)

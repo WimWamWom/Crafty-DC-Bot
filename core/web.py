@@ -649,6 +649,7 @@ TABS = {
         ('Steuer-Rolle', ['discord.control_role_enabled', 'discord.control_role_id']),
         ('Statusübersicht', ['status.enabled', 'status.channel_id', 'status.update_interval']),
         ('Start- und Stopp-Nachrichten', ['session.enabled', 'session.channel_id']),
+        ('Kanal pro Server', ['panel.channels', 'panel.mode']),
     ]),
     'servers': ('Server', 'Welche Server der Bot zeigt, in welcher Reihenfolge, wann sie stoppen und welche Domain '
                           'sie bekommen.', [
@@ -735,7 +736,8 @@ def _motd_hints() -> str:
 SERVER_ORDER = ('servers.allowed', 'servers.order')
 
 # Fields that take the full width of a group instead of one grid column
-WIDE_KINDS = ('bool', 'servers', 'server_order', 'list', 'lines', 'domains', 'server_domains', 'server_motds')
+WIDE_KINDS = ('bool', 'servers', 'server_order', 'list', 'lines', 'domains', 'server_domains', 'server_motds',
+              'server_channels')
 
 
 class WebInterface:
@@ -855,6 +857,16 @@ class WebInterface:
             elif field.kind in ('servers', 'server_order'):
                 if f'{name}.present' in form:
                     values[name] = cfg.parse_value(field, form.getall(name, []))
+            elif field.kind == 'server_channels':
+                if f'{name}.present' in form:
+                    prefix = f'{name}.'
+                    try:
+                        values[name] = cfg.parse_value(field, {key[len(prefix):]: form[key] for key in form
+                                                               if key.startswith(prefix)
+                                                               and key != f'{name}.present'})
+                    except ValueError:
+                        errors.append(f'{field.label}: ungültige Kanal-ID')
+                        invalid.add(name)
             elif field.kind == 'server_domains':
                 if f'{name}.present' in form:
                     prefix = f'{name}.'
@@ -894,6 +906,15 @@ class WebInterface:
             if values[toggle] and not values[target]:
                 errors.append(f'{cfg.FIELDS_BY_NAME[target].label}: bitte auswählen oder den Schalter ausschalten')
                 invalid.add(target)
+        # a server channel only holds the server buttons, so no other message of the bot may go there
+        panel_ids = set(values['panel.channels'].values())
+        for target, used in (('discord.command_channel_id', values['discord.command_channel_enabled']),
+                             ('status.channel_id', values['status.enabled']),
+                             ('session.channel_id', values['session.enabled'])):
+            if used and values[target] in panel_ids:
+                errors.append(f'{cfg.FIELDS_BY_NAME[target].label}: ist schon der Kanal eines Servers, '
+                              f'dort steht nur dessen Nachricht mit den Knöpfen')
+                invalid.update({target, 'panel.channels'})
         if errors:
             return await self.render(errors=errors, values=values, invalid=invalid)
 
@@ -1071,6 +1092,38 @@ class WebInterface:
         if field.kind == 'time':
             return (f'{open_tag}{label}<input type="time" id="{name}" name="{name}" '
                     f'value="{escape(value)}">{help_text}</div>')
+
+        if field.kind == 'server_channels':
+            marker = f'<input type="hidden" name="{name}.present" value="1">'
+            if servers is None:
+                # keep the current choices if the server list is not available
+                hidden = ''.join(f'<input type="hidden" name="{name}.{escape(server_id)}" value="{channel_id}">'
+                                 for server_id, channel_id in value.items())
+                return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}{hidden}'
+                        f'<div class="help">Serverliste konnte nicht von Crafty geladen werden. '
+                        f'Prüfe URL und Token im Tab „Verbindung“.</div>{help_text}</div>')
+            channels = [(channel.id, f'#{channel.name}') for channel in guild.text_channels] if guild else None
+            rows = []
+            for server in servers:
+                server_id = server['server_id']
+                choice = value.get(server_id, 0)
+                field_name = f'{name}.{escape(server_id)}'
+                if channels is None:
+                    # without the Discord server, the channel ID is typed in
+                    control = (f'<input type="text" inputmode="numeric" name="{field_name}" '
+                               f'value="{choice or ""}" placeholder="Kanal-ID, leer = keiner">')
+                else:
+                    options = [(0, 'Kein eigener Kanal')] + channels
+                    if choice and choice not in [channel_id for channel_id, _ in channels]:
+                        options.append((choice, f'Unbekannt ({choice})'))
+                    html_options = ''.join(f'<option value="{option}"{" selected" if option == choice else ""}>'
+                                           f'{escape(text)}</option>' for option, text in options)
+                    control = f'<select name="{field_name}">{html_options}</select>'
+                rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>{control}</label>')
+            if not servers:
+                rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
+            return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
+                    f'<div class="domain-rows">{"".join(rows)}</div>{help_text}</div>')
 
         if field.kind == 'server_domains':
             marker = f'<input type="hidden" name="{name}.present" value="1">'

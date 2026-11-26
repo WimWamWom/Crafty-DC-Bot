@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 
 from core.config import config, missing_required
-from core.constants import allowed_servers
+from core.constants import allowed_servers, panel_channels
 from core.server import get_server_stats, get_servers
 
 
@@ -134,6 +134,9 @@ async def _server_choices(current: str, running: bool | None = None) -> list[app
         return [app_commands.Choice(name='failed to get server list', value='failed to get server list')]
 
     if running is not None:
+        # servers with their own channel are only controlled with the buttons there
+        panels = panel_channels()
+        servers = [server for server in servers if server['server_id'] not in panels]
         states = await get_running_states(servers)
         # keep servers with an unknown state, the command checks them again
         servers = [server for server in servers if states.get(server['server_id']) in (running, None)]

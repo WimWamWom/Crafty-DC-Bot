@@ -79,3 +79,21 @@ def session_channel_id() -> int:
 
 def backup_enabled() -> bool:
     return get('backup.enabled')
+
+
+def panel_channels() -> dict[str, int]:
+    """
+    Server ID -> channel in which only this server is shown and controlled, with its panel message.
+    """
+    return get('panel.channels')
+
+
+def panel_channel_ids() -> set[int]:
+    return set(panel_channels().values())
+
+
+def panel_mode() -> str:
+    """
+    What happens with other messages in panel channels: delete, bottom (keep them, panel stays the newest) or keep.
+    """
+    return get('panel.mode')
