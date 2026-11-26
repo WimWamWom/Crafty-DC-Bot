@@ -30,7 +30,7 @@ class Field:
     section: str
     key: str
     # str, secret, int, bool, channel, role, servers, list, lines, domains, server_domains, server_motds, server_order,
-    # time, weekday, timezone or choice
+    # server_channels, time, weekday, timezone or choice
     kind: str
     default: object
     env: str | None
@@ -50,6 +50,7 @@ SECTIONS = {
     'auto_stop': 'Auto-Stop',
     'status': 'Status-Embed',
     'session': 'Start & Stopp',
+    'panel': 'Kanal pro Server',
     'address': 'Domains',
     'backup': 'Backups',
     'motd': 'MOTD',
@@ -99,6 +100,20 @@ FIELDS = [
     Field('session', 'channel_id', 'channel', 0, 'SESSION_CHANNEL_ID', 'Kanal für Start/Stopp-Nachrichten',
           'Hier erscheinen alle diese Nachrichten, auch für Starts direkt in Crafty. Leer = im Kanal von /start, '
           'Starts in Crafty dann im Befehlskanal'),
+    Field('panel', 'channels', 'server_channels', {}, None, 'Kanal pro Server',
+          'Ein Server mit eigenem Kanal wird nur dort gesteuert: Im Kanal steht eine einzige Nachricht, die sich '
+          'selbst aktualisiert, mit „Start“, solange er aus ist, und „Stop“, solange er läuft. Stoppen geht nur, '
+          'wenn niemand online ist. /start, /stop und /restart gehen für diesen Server dann nicht mehr',
+          details='Rechte des Bots in diesem Kanal:\n'
+                  'Kanal ansehen, Nachrichten senden, Links einbetten, Nachrichtenverlauf lesen\n'
+                  'Nachrichten verwalten, damit er andere Nachrichten löschen kann\n'
+                  'Damit dort niemand schreibt:\n'
+                  'Für @everyone „Nachrichten senden“ und „Threads erstellen“ verbieten, die Knöpfe gehen trotzdem\n'
+                  'Mehrere Server im selben Kanal:\n'
+                  'Geht, jeder Server bekommt dann seine eigene Nachricht'),
+    Field('panel', 'clean', 'bool', True, None, 'Andere Nachrichten in diesen Kanälen löschen',
+          'Der Bot löscht alles, was dort sonst geschrieben wird, auch Befehle mit >. Braucht das Recht '
+          '„Nachrichten verwalten“'),
     Field('address', 'enabled', 'bool', False, None, 'Erste freie Domain automatisch vergeben',
           'Vor jedem /start bekommt der Server den Port der ersten Domain aus der Liste, die gerade frei ist. '
           'Ist keine frei, startet er nicht. Braucht einen Superuser-Token mit CONFIG und FILES'),
@@ -276,6 +291,21 @@ def parse_value(field: Field, raw):
             raise ValueError(f'{field.label}: expected server ID: domain')
         return {str(server_id).strip(): str(choice).strip().lower() for server_id, choice in raw.items()
                 if str(server_id).strip() and str(choice).strip() and str(choice).strip().lower() != 'auto'}
+    if field.kind == 'server_channels':
+        # server ID -> Discord channel ID; servers without an entry have no channel of their own
+        if not raw:
+            return {}
+        if not isinstance(raw, dict):
+            raise ValueError(f'{field.label}: expected server ID: channel ID')
+        channels = {}
+        for server_id, channel in raw.items():
+            server_id, text = str(server_id).strip(), str(channel if channel is not None else '').strip()
+            if not server_id or text in ('', '0'):
+                continue
+            if not text.isdigit():
+                raise ValueError(f'{field.label}: expected a channel ID, got {text}')
+            channels[server_id] = int(text)
+        return channels
     if field.kind == 'server_motds':
         # server ID -> fixed message or KEEP_MOTD; servers without an entry get a random message
         if not raw:

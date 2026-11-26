@@ -10,6 +10,7 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 - Self-updating status board with all servers in one channel
 - One message per server start that shows the backup, the running server with players and the time until auto stop,
   and why the server stopped (replaces the start/stop webhooks of Crafty)
+- A channel per server with one self-updating message and a Start or Stop button (stop only when nobody is online)
 - Auto stop for empty servers
 - Automatic backups in Crafty (before start, daily, weekly), only when the server was played
 - Random MOTD (text under the server name in the server list) from your own list, new for every server start,
@@ -32,6 +33,8 @@ They also work with the `>` prefix (`>stats`).
 | `/help` | List all commands |
 
 The bot owner can use all commands in every channel, regardless of the channel and role settings.
+Servers with their own channel (see below) are not offered by `/start`, `/stop` and `/restart`, they are controlled
+with the buttons in their channel.
 
 ## Setup
 
@@ -125,6 +128,17 @@ Server icons are set per server in the "MOTD & Icon" tab, next to the MOTD of ea
 server uses now (downloaded from Crafty) until you upload your own. Every picture is cut to a square and stored as a 64x64 PNG
 (the only size Minecraft shows) in `icons/` next to `config.yaml`. The bot writes it as `server-icon.png` into the
 server folder right after the upload and before every start, restart and after every stop it sees.
+
+A server can get a channel of its own ("Kanal pro Server" in the Discord tab, `panel.channels` as
+`server ID: channel ID`). The bot keeps one message for that server there and only edits it: offline with a Start
+button, starting (with the backup before the start), online with players, address and auto stop and a Stop button that
+only works while nobody is online, and offline again. Clicks never post a message in the channel, refusals are only
+shown to the user who clicked. The message ID is stored in `panel_state.json` next to `config.yaml` and the buttons
+keep working after a restart. With `panel.clean` (default on) the bot deletes every other message in these
+channels, which needs the "Manage Messages" permission there; it is easier to deny "Send Messages" for `@everyone`
+in the channel, the buttons still work. Commands do not work in these channels, and the command, status and start
+message channels must be other channels. Start messages (`session.*`) of these servers only go to the
+`session.channel_id` channel, if one is set.
 
 Domains (`address.*`) are set there too. List them as `domain:port`, each pointing to its port with a Minecraft SRV
 record (e.g. `_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de`). A server running on one of these ports

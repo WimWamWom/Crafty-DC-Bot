@@ -4,7 +4,7 @@ This module contains the permission checks for the bot commands.
 
 from discord.ext import commands
 
-from core.constants import command_channel_id, control_role_id
+from core.constants import command_channel_id, control_role_id, panel_channel_ids
 
 
 class WrongChannel(commands.CheckFailure):
@@ -21,10 +21,23 @@ class MissingControlRole(commands.CheckFailure):
         super().__init__(f'You need the <@&{control_role_id()}> role to do that')
 
 
+class PanelChannel(commands.CheckFailure):
+    """Raised when a command is used in the channel of a server panel."""
+
+    def __init__(self):
+        channel_id = command_channel_id()
+        where = f' in <#{channel_id}>' if channel_id else ' in another channel'
+        super().__init__(f'This channel only has the server buttons, use commands{where}')
+
+
 async def command_channel_check(ctx: commands.Context) -> bool:
     """
-    Global check: only allow commands in the command channel (if set). The bot owner may use any channel.
+    Global check: only allow commands in the command channel (if set) and never in a panel channel.
+    The bot owner may use any other channel.
     """
+    # panel channels only hold the panels, also for the bot owner
+    if ctx.channel.id in panel_channel_ids():
+        raise PanelChannel()
     channel_id = command_channel_id()
     if not channel_id or await ctx.bot.is_owner(ctx.author):
         return True
