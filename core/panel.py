@@ -287,8 +287,8 @@ class PanelBoard:
             channel = await self._channel(channel_id)
             message = await self._find(server_id, channel)
             if message is not None and repost:
-                # post it again below the newer messages, then remove the old one
-                old, message = message, await channel.send(embed=embed, view=view)
+                # post it again below the newer messages (silently, no push notification), then remove the old one
+                old, message = message, await channel.send(embed=embed, view=view, silent=True)
                 try:
                     await old.delete()
                 except discord.HTTPException:
@@ -299,7 +299,7 @@ class PanelBoard:
                 except discord.NotFound:
                     message = None
             if message is None:
-                message = await channel.send(embed=embed, view=view)
+                message = await channel.send(embed=embed, view=view, silent=True)
         except discord.HTTPException as e:
             print(f'panel: failed to show the panel of {server.get("server_name", server_id)} in {channel_id}: {e}')
             return
