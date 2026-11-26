@@ -1,22 +1,24 @@
 """
 This module keeps one control message ("panel") per server in the channel set for that server.
 
-The panel shows whether the server is offline or online and has one button: Start while it is offline, Stop while
-it is online (only usable while nobody is online). It is posted once and then only edited, also across restarts of
-the bot, and clicks are answered without a new message in the channel (errors only as ephemeral replies).
+The panel shows whether the server is offline or online, with a Start button while it is offline and Stop and Restart
+buttons while it is online (only usable while nobody is online). It is posted once and then only edited, also across
+restarts of the bot, and clicks are answered without a new message in the channel (errors only as ephemeral replies).
+If other messages may stay in the channel, the panel can be posted again below them, so it is always the newest one.
 """
 
 import asyncio
 import json
 import os
 import time
+from dataclasses import dataclass
 from typing import Awaitable, Callable
 
 import discord
 
 from core import config as cfg
 from core.address import display_address
-from core.constants import control_role_id, panel_channels
+from core.constants import control_role_id, panel_channels, panel_mode
 from core.embeds import COLOR_OFFLINE, COLOR_ONLINE, COLOR_UNKNOWN, MAX_FIELD_LENGTH, new_embed, player_text
 from core.server import get_server_stats, get_servers
 
@@ -31,19 +33,45 @@ PENDING_TIMEOUT = 300
 
 START = 'start'
 STOP = 'stop'
+RESTART = 'restart'
+
+# panel.mode: what happens with other messages in a panel channel
+DELETE = 'delete'
+BOTTOM = 'bottom'
+KEEP = 'keep'
+
+# wait this long after a message before posting the panel below it again, so a burst of messages moves it once
+REPOST_DELAY = 5
+
+BUTTONS = {
+    START: ('Start', '▶️', discord.ButtonStyle.success),
+    STOP: ('Stop', '⏹️', discord.ButtonStyle.danger),
+    RESTART: ('Restart', '🔄', discord.ButtonStyle.primary),
+}
 
 # reply(text) sends an ephemeral answer to the user who clicked, progress(text) shows a step in the panel
 Reply = Callable[[str], Awaitable[None]]
 Progress = Callable[[str], Awaitable[None]]
-# start(server, user mention, reply, progress) and stop(server_id, user mention, reply) -> True if it worked
+# start(server, user mention, reply, progress) and stop/restart(server_id, user mention, reply) -> True if it worked
 StartAction = Callable[[dict, str, Reply, Progress], Awaitable[bool]]
 StopAction = Callable[[str, str, Reply], Awaitable[bool]]
 
 
+@dataclass
+class Pending:
+    """A start, stop or restart in progress, shown until the server is seen in its new state."""
+    text: str
+    action: str
+    until: float
+    # restart: when the server was started before, and whether it was seen stopped since
+    started: object = None
+    seen_down: bool = False
+
+
 class PanelButton(discord.ui.DynamicItem[discord.ui.Button],
-                  template=r'panel:(?P<action>start|stop):(?P<server_id>[0-9a-fA-F-]{36})'):
+                  template=r'panel:(?P<action>start|stop|restart):(?P<server_id>[0-9a-fA-F-]{36})'):
     """
-    The Start or Stop button of a panel. The action and server are in the custom ID, so the button keeps working
+    The Start, Stop or Restart button of a panel. The action and server are in the custom ID, so the button keeps working
     after a restart of the bot.
     """
 
@@ -51,10 +79,11 @@ class PanelButton(discord.ui.DynamicItem[discord.ui.Button],
     board: 'PanelBoard | None' = None
 
     def __init__(self, action: str, server_id: str, disabled: bool = False):
+        label, emoji, style = BUTTONS[action]
         super().__init__(discord.ui.Button(
-            style=discord.ButtonStyle.success if action == START else discord.ButtonStyle.danger,
-            label='Start' if action == START else 'Stop',
-            emoji='▶️' if action == START else '⏹️',
+            style=style,
+            label=label,
+            emoji=emoji,
             custom_id=f'panel:{action}:{server_id}',
             disabled=disabled,
         ))
@@ -82,20 +111,28 @@ class PanelBoard:
         auto_stop_eta: Function that returns when auto stop will stop a server if nobody joins, or None.
         start: Coroutine function that starts a server, see StartAction.
         stop: Coroutine function that stops a server, see StopAction.
+        restart: Coroutine function that restarts a server, see StopAction.
     """
 
-    def __init__(self, bot: discord.Client, auto_stop_eta, start: StartAction, stop: StopAction):
+    def __init__(self, bot: discord.Client, auto_stop_eta, start: StartAction, stop: StopAction,
+                 restart: StopAction):
         self.bot = bot
         self.auto_stop_eta = auto_stop_eta
         self.start_action = start
         self.stop_action = stop
+        self.restart_action = restart
         # server ID -> (channel ID, message ID) of the panel, stored so a restart edits the same message
         self.state: dict[str, list[int]] = self._load()
         self.messages: dict[str, discord.Message] = {}
         # what each panel shows now, so it is only edited when something changed
         self.shown: dict[str, tuple] = {}
-        # server ID -> (text shown while starting or stopping, action, until)
-        self.pending: dict[str, tuple[str, str, float]] = {}
+        self.pending: dict[str, Pending] = {}
+        # servers whose panel is posted again below the other messages on the next update
+        self.repost: set[str] = set()
+        # channel ID -> waiting task that moves the panels below new messages
+        self.repost_tasks: dict[int, asyncio.Task] = {}
+        # channel ID -> last message ID already checked for messages below the panels
+        self.checked: dict[int, int] = {}
         # servers with a click being handled, so two clicks do not start a server twice
         self.busy: set[str] = set()
         self.lock = asyncio.Lock()
@@ -127,21 +164,28 @@ class PanelBoard:
 
     # ---- content
 
-    def _pending(self, server_id: str, stats: dict | None) -> tuple[str, str] | None:
+    def _pending(self, server_id: str, stats: dict | None) -> Pending | None:
         """
-        The start or stop in progress (text, action), or None. Ends once the server is seen in the new state.
+        The start, stop or restart in progress, or None. Ends once the server is seen in the new state.
         """
         entry = self.pending.get(server_id)
         if entry is None:
             return None
-        text, action, until = entry
         running = None if stats is None else bool(stats.get('running'))
-        done = (action == START and running is True) or (action == STOP and running is False)
+        if entry.action == START:
+            done = running is True
+        elif entry.action == STOP:
+            done = running is False
+        else:
+            if running is False:
+                entry.seen_down = True
+            # up again: seen stopped in between, or started at another time than before
+            done = running is True and (entry.seen_down or stats.get('started') != entry.started)
         # a click still being handled (e.g. a long backup before the start) keeps it
-        if done or (time.time() > until and server_id not in self.busy):
+        if done or (time.time() > entry.until and server_id not in self.busy):
             self.pending.pop(server_id, None)
             return None
-        return text, action
+        return entry
 
     def _content(self, server: dict, stats: dict | None) -> tuple[discord.Embed, discord.ui.View]:
         server_id = server['server_id']
@@ -150,20 +194,20 @@ class PanelBoard:
         running = bool(stats and stats.get('running'))
 
         if pending is not None:
-            text, action = pending
-            embed = new_embed(title=name, description=f'⏳ {text}', color=COLOR_PENDING)
-            button = PanelButton(action, server_id, disabled=True)
+            embed = new_embed(title=name, description=f'⏳ {pending.text}', color=COLOR_PENDING)
+            actions = [START] if pending.action == START else [STOP, RESTART]
+            buttons = [PanelButton(action, server_id, disabled=True) for action in actions]
         elif stats is None:
             embed = new_embed(title=name, description='⚪ Unknown, Crafty is not reachable', color=COLOR_UNKNOWN)
-            button = PanelButton(START, server_id, disabled=True)
+            buttons = [PanelButton(START, server_id, disabled=True)]
         elif running:
             embed = new_embed(title=name, description='🟢 Online', color=COLOR_ONLINE)
-            online = stats.get('online', 0)
-            button = PanelButton(STOP, server_id, disabled=bool(online))
+            online = bool(stats.get('online', 0))
+            buttons = [PanelButton(STOP, server_id, disabled=online), PanelButton(RESTART, server_id, disabled=online)]
         else:
             description = '💥 Crashed, press Start to start it again' if stats.get('crashed') else '🔴 Offline'
             embed = new_embed(title=name, description=description, color=COLOR_OFFLINE)
-            button = PanelButton(START, server_id)
+            buttons = [PanelButton(START, server_id)]
 
         embed.add_field(name='Address', value=f'`{display_address(server)}`')
         if running and pending is None:
@@ -171,13 +215,14 @@ class PanelBoard:
             embed.add_field(name='Players', value=player_text(stats)[:MAX_FIELD_LENGTH], inline=False)
             eta = self.auto_stop_eta(server_id)
             if stats.get('online'):
-                embed.add_field(name='Stop', value='possible once nobody is online', inline=False)
+                embed.add_field(name='Stop & restart', value='possible once nobody is online', inline=False)
             elif eta is not None:
                 embed.add_field(name='Auto stop', value=f'<t:{int(eta)}:R> if nobody joins', inline=False)
         embed.set_footer(text=f'{PANEL_FOOTER} · {server_id}')
 
         view = discord.ui.View(timeout=None)
-        view.add_item(button)
+        for button in buttons:
+            view.add_item(button)
         return embed, view
 
     # ---- messages
@@ -228,9 +273,10 @@ class PanelBoard:
     async def _show(self, server: dict, stats: dict | None, channel_id: int) -> None:
         server_id = server['server_id']
         embed, view = self._content(server, stats)
-        button = view.children[0].item
-        key = (channel_id, json.dumps(embed.to_dict(), sort_keys=True), button.custom_id, button.disabled)
-        if self.shown.get(server_id) == key:
+        key = (channel_id, json.dumps(embed.to_dict(), sort_keys=True), json.dumps(view.to_components()))
+        repost = server_id in self.repost
+        self.repost.discard(server_id)
+        if self.shown.get(server_id) == key and not repost:
             return
 
         stored = self.state.get(server_id)
@@ -240,7 +286,14 @@ class PanelBoard:
         try:
             channel = await self._channel(channel_id)
             message = await self._find(server_id, channel)
-            if message is not None:
+            if message is not None and repost:
+                # post it again below the newer messages, then remove the old one
+                old, message = message, await channel.send(embed=embed, view=view)
+                try:
+                    await old.delete()
+                except discord.HTTPException:
+                    pass
+            elif message is not None:
                 try:
                     message = await message.edit(embed=embed, view=view)
                 except discord.NotFound:
@@ -272,6 +325,8 @@ class PanelBoard:
             if only is None:
                 for server_id in [server_id for server_id in self.state if server_id not in available]:
                     await self._remove(server_id)
+            if only is None and panel_mode() == BOTTOM:
+                await self._check_bottom(available, channels)
             targets = [server for server_id, server in available.items() if only in (None, server_id)]
             stats = await asyncio.gather(*(get_server_stats(server['server_id']) for server in targets))
             for server, server_stats in zip(targets, stats):
@@ -315,16 +370,22 @@ class PanelBoard:
             user = interaction.user.mention
             if action == START:
                 async def progress(text: str) -> None:
-                    self.pending[server_id] = (text, START, time.time() + PENDING_TIMEOUT)
+                    self.pending[server_id] = Pending(text, START, time.time() + PENDING_TIMEOUT)
                     await self.update(server_id)
 
                 ok = await self.start_action(server, user, reply, progress)
                 if not ok:
                     self.pending.pop(server_id, None)
-            else:
+            elif action == STOP:
                 ok = await self.stop_action(server_id, user, reply)
                 if ok:
-                    self.pending[server_id] = ('Stopping', STOP, time.time() + PENDING_TIMEOUT)
+                    self.pending[server_id] = Pending('Stopping', STOP, time.time() + PENDING_TIMEOUT)
+            else:
+                before = await get_server_stats(server_id)
+                ok = await self.restart_action(server_id, user, reply)
+                if ok:
+                    self.pending[server_id] = Pending('Restarting', RESTART, time.time() + PENDING_TIMEOUT,
+                                                      started=(before or {}).get('started'))
             await self.update(server_id)
         finally:
             self.busy.discard(server_id)
@@ -344,3 +405,59 @@ class PanelBoard:
                 self.warned_delete = True
                 print(f'panel: cannot delete messages in #{message.channel}, '
                       f'the bot needs the "Manage Messages" permission there ({e})')
+
+    # ---- keeping the panels below other messages (panel.mode bottom)
+
+    def _panel_ids(self, channel_id: int) -> dict[int, str]:
+        """
+        Message ID -> server ID of the panels in the channel.
+        """
+        return {message_id: server_id for server_id, (panel_channel, message_id) in self.state.items()
+                if panel_channel == channel_id}
+
+    async def _check_bottom(self, available: dict[str, dict], channels: dict[str, int]) -> None:
+        """
+        Post the panels again if other messages came after them, e.g. while the bot was offline.
+        """
+        for channel_id in set(channels[server_id] for server_id in available):
+            panels = self._panel_ids(channel_id)
+            if not panels:
+                continue
+            try:
+                channel = await self._channel(channel_id)
+                last = getattr(channel, 'last_message_id', None)
+                if last in panels or self.checked.get(channel_id) == last:
+                    continue
+                self.checked[channel_id] = last
+                # the last message ID may belong to a deleted message, so look at what really comes after the panels
+                newer = [message async for message in channel.history(after=discord.Object(min(panels)), limit=20)
+                         if message.id not in panels]
+            except discord.HTTPException as e:
+                print(f'panel: failed to read the messages in {channel_id}: {e}')
+                continue
+            if newer:
+                self.repost.update(panels.values())
+
+    def notice(self, message: discord.Message) -> None:
+        """
+        A new message from someone else in a panel channel: post the panels below it, once the channel is quiet.
+        """
+        channel_id = message.channel.id
+        task = self.repost_tasks.get(channel_id)
+        if task is not None:
+            task.cancel()
+        self.repost_tasks[channel_id] = asyncio.create_task(self._repost_later(channel_id))
+
+    async def _repost_later(self, channel_id: int) -> None:
+        try:
+            await asyncio.sleep(REPOST_DELAY)
+        except asyncio.CancelledError:
+            return
+        self.repost_tasks.pop(channel_id, None)
+        if panel_mode() != BOTTOM:
+            return
+        self.repost.update(self._panel_ids(channel_id).values())
+        try:
+            await self.update()
+        except Exception as e:  # keep the bot running on unexpected errors
+            print(f'panel: failed to move the panels in {channel_id} down: {e}')

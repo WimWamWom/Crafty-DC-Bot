@@ -39,7 +39,7 @@ from core.icon import set_icon
 from core.motd import set_motd
 from core.address import has_free_domain, prepare_start
 from core.constants import (GUILD_ID, WEB_PORT, auto_stop_enabled, auto_stop_idle_time, panel_channel_ids,
-                            panel_channels, panel_clean, session_channel_id, session_enabled, status_channel_id,
+                            panel_channels, panel_mode, session_channel_id, session_enabled, status_channel_id,
                             status_update_interval)
 
 
@@ -216,10 +216,15 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    # a panel channel only holds the panels: nothing else is answered there, and other messages are deleted
+    # a panel channel is for the panels: no command is answered there, other messages are deleted
+    # or the panels are posted again below them
     if message.guild is not None and message.channel.id in panel_channel_ids():
-        if message.author.id != bot.user.id and panel_clean():
-            await panels.clean(message)
+        if message.author.id != bot.user.id:
+            mode = panel_mode()
+            if mode == 'delete':
+                await panels.clean(message)
+            elif mode == 'bottom':
+                panels.notice(message)
         return
     await bot.process_commands(message)
 
@@ -438,7 +443,19 @@ async def panel_stop(server_id: str, stopped_by: str, reply) -> bool:
     return False
 
 
-panels = PanelBoard(bot, auto_stop_eta, panel_start, panel_stop)
+async def panel_restart(server_id: str, restarted_by: str, reply) -> bool:
+    if not await check_can_stop(reply, server_id, 'restart'):
+        return False
+    sessions.mark_restart(server_id)
+    await set_motd(server_id)
+    await set_icon(server_id)
+    if await server_action(server_id, 'restart_server'):
+        return True
+    await reply('failed to restart server')
+    return False
+
+
+panels = PanelBoard(bot, auto_stop_eta, panel_start, panel_stop, panel_restart)
 
 
 # stop a server

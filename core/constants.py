@@ -92,5 +92,8 @@ def panel_channel_ids() -> set[int]:
     return set(panel_channels().values())
 
 
-def panel_clean() -> bool:
-    return get('panel.clean')
+def panel_mode() -> str:
+    """
+    What happens with other messages in panel channels: delete, bottom (keep them, panel stays the newest) or keep.
+    """
+    return get('panel.mode')

@@ -102,18 +102,23 @@ FIELDS = [
           'Starts in Crafty dann im Befehlskanal'),
     Field('panel', 'channels', 'server_channels', {}, None, 'Kanal pro Server',
           'Ein Server mit eigenem Kanal wird nur dort gesteuert: Im Kanal steht eine einzige Nachricht, die sich '
-          'selbst aktualisiert, mit „Start“, solange er aus ist, und „Stop“, solange er läuft. Stoppen geht nur, '
-          'wenn niemand online ist. /start, /stop und /restart gehen für diesen Server dann nicht mehr',
+          'selbst aktualisiert, mit „Start“, solange er aus ist, und „Stop“ und „Restart“, solange er läuft. '
+          'Stoppen und Neustarten geht nur, wenn niemand online ist. /start, /stop und /restart gehen für diesen Server dann nicht mehr',
           details='Rechte des Bots in diesem Kanal:\n'
                   'Kanal ansehen, Nachrichten senden, Links einbetten, Nachrichtenverlauf lesen\n'
-                  'Nachrichten verwalten, damit er andere Nachrichten löschen kann\n'
+                  'Nachrichten verwalten, damit er andere Nachrichten löschen kann (bei „Löschen“) und seine '
+                  'eigene alte Nachricht\n'
                   'Damit dort niemand schreibt:\n'
                   'Für @everyone „Nachrichten senden“ und „Threads erstellen“ verbieten, die Knöpfe gehen trotzdem\n'
                   'Mehrere Server im selben Kanal:\n'
                   'Geht, jeder Server bekommt dann seine eigene Nachricht'),
-    Field('panel', 'clean', 'bool', True, None, 'Andere Nachrichten in diesen Kanälen löschen',
-          'Der Bot löscht alles, was dort sonst geschrieben wird, auch Befehle mit >. Braucht das Recht '
-          '„Nachrichten verwalten“'),
+    Field('panel', 'mode', 'choice', 'delete', None, 'Andere Nachrichten in diesen Kanälen',
+          'Löschen: der Bot löscht alles, was dort sonst geschrieben wird, auch Befehle mit >, dafür braucht er '
+          'das Recht „Nachrichten verwalten“. Stehen lassen, Nachricht bleibt unten: andere Nachrichten bleiben, '
+          'der Bot schickt seine Nachricht ein paar Sekunden nach einer neuen Nachricht neu und löscht die alte, '
+          'so ist sie immer die neueste. Stehen lassen: alles bleibt, wie es ist',
+          choices=(('delete', 'Löschen'), ('bottom', 'Stehen lassen, Nachricht bleibt unten'),
+                   ('keep', 'Stehen lassen'))),
     Field('address', 'enabled', 'bool', False, None, 'Erste freie Domain automatisch vergeben',
           'Vor jedem /start bekommt der Server den Port der ersten Domain aus der Liste, die gerade frei ist. '
           'Ist keine frei, startet er nicht. Braucht einen Superuser-Token mit CONFIG und FILES'),
@@ -371,6 +376,10 @@ def load() -> dict:
     old_keep = (file_data.get('motd') or {}).get('excluded_servers')
     if 'motd.servers' in missing and old_keep:
         values['motd.servers'] = {str(server_id): KEEP_MOTD for server_id in old_keep}
+
+    # The first version of the server channels only had a switch to delete other messages
+    if 'panel.mode' in missing and (file_data.get('panel') or {}).get('clean') is False:
+        values['panel.mode'] = 'keep'
 
     # Older configs only know a switch for the start backup in the background
     if 'backup.mode' in missing and (file_data.get('backup') or {}).get('start_in_background') is True:

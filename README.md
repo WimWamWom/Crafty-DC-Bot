@@ -10,7 +10,8 @@ Based on [Two-Play/Crafty-Discord-bot](https://github.com/Two-Play/Crafty-Discor
 - Self-updating status board with all servers in one channel
 - One message per server start that shows the backup, the running server with players and the time until auto stop,
   and why the server stopped (replaces the start/stop webhooks of Crafty)
-- A channel per server with one self-updating message and a Start or Stop button (stop only when nobody is online)
+- A channel per server with one self-updating message and Start, Stop and Restart buttons (stop and restart only when
+  nobody is online)
 - Auto stop for empty servers
 - Automatic backups in Crafty (before start, daily, weekly), only when the server was played
 - Random MOTD (text under the server name in the server list) from your own list, new for every server start,
@@ -131,14 +132,16 @@ server folder right after the upload and before every start, restart and after e
 
 A server can get a channel of its own ("Kanal pro Server" in the Discord tab, `panel.channels` as
 `server ID: channel ID`). The bot keeps one message for that server there and only edits it: offline with a Start
-button, starting (with the backup before the start), online with players, address and auto stop and a Stop button that
-only works while nobody is online, and offline again. Clicks never post a message in the channel, refusals are only
-shown to the user who clicked. The message ID is stored in `panel_state.json` next to `config.yaml` and the buttons
-keep working after a restart. With `panel.clean` (default on) the bot deletes every other message in these
-channels, which needs the "Manage Messages" permission there; it is easier to deny "Send Messages" for `@everyone`
-in the channel, the buttons still work. Commands do not work in these channels, and the command, status and start
-message channels must be other channels. Start messages (`session.*`) of these servers only go to the
-`session.channel_id` channel, if one is set.
+button, starting (with the backup before the start), online with players, address and auto stop and Stop and Restart
+buttons that only work while nobody is online, and offline again. Clicks never post a message in the channel,
+refusals are only shown to the user who clicked. Start, stop and restart work like `/start`, `/stop` and `/restart`,
+including the backups of `backup.mode` (a restart makes no backup). The message ID is stored in `panel_state.json`
+next to `config.yaml` and the buttons keep working after a restart.
+`panel.mode` sets what happens with other messages in these channels: `delete` (default) deletes them, which needs
+the "Manage Messages" permission there, `bottom` keeps them and posts the panel again below them a few seconds after
+a new message (and deletes the old panel), so it is always the newest message, and `keep` leaves everything as it is.
+Commands do not work in these channels, and the command, status and start message channels must be other channels.
+Start messages (`session.*`) of these servers only go to the `session.channel_id` channel, if one is set.
 
 Domains (`address.*`) are set there too. List them as `domain:port`, each pointing to its port with a Minecraft SRV
 record (e.g. `_minecraft._tcp.mc1.example.de SRV 0 5 25566 mc.example.de`). A server running on one of these ports

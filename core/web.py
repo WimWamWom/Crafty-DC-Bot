@@ -649,7 +649,7 @@ TABS = {
         ('Steuer-Rolle', ['discord.control_role_enabled', 'discord.control_role_id']),
         ('Statusübersicht', ['status.enabled', 'status.channel_id', 'status.update_interval']),
         ('Start- und Stopp-Nachrichten', ['session.enabled', 'session.channel_id']),
-        ('Kanal pro Server', ['panel.channels', 'panel.clean']),
+        ('Kanal pro Server', ['panel.channels', 'panel.mode']),
     ]),
     'servers': ('Server', 'Welche Server der Bot zeigt, in welcher Reihenfolge, wann sie stoppen und welche Domain '
                           'sie bekommen.', [
