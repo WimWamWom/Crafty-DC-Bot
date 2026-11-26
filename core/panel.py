@@ -137,6 +137,8 @@ class PanelBoard:
         self.busy: set[str] = set()
         self.lock = asyncio.Lock()
         self.warned_delete = False
+        # the last reported setup, so the log only shows changes and not every update
+        self.reported: tuple | None = None
         PanelButton.board = self
 
     # ---- stored message IDs
@@ -283,12 +285,18 @@ class PanelBoard:
         if stored and stored[0] != channel_id:
             await self._remove(server_id)
 
+        name = server.get('server_name', server_id)
         try:
             channel = await self._channel(channel_id)
+            if not hasattr(channel, 'send') or not hasattr(channel, 'history'):
+                print(f'panel: {channel_id} ({getattr(channel, "name", "?")}) is not a text channel, '
+                      f'no panel for {name}')
+                return
             message = await self._find(server_id, channel)
             if message is not None and repost:
                 # post it again below the newer messages (silently, no push notification), then remove the old one
                 old, message = message, await channel.send(embed=embed, view=view, silent=True)
+                print(f'panel: moved the panel of {name} down in #{channel}')
                 try:
                     await old.delete()
                 except discord.HTTPException:
@@ -300,8 +308,16 @@ class PanelBoard:
                     message = None
             if message is None:
                 message = await channel.send(embed=embed, view=view, silent=True)
+                print(f'panel: posted the panel of {name} in #{channel}')
+        except discord.Forbidden as e:
+            print(f'panel: no permission to show the panel of {name} in channel {channel_id}, the bot needs '
+                  f'View Channel, Send Messages, Embed Links and Read Message History there ({e})')
+            return
+        except discord.NotFound:
+            print(f'panel: channel {channel_id} of {name} not found, was it deleted?')
+            return
         except discord.HTTPException as e:
-            print(f'panel: failed to show the panel of {server.get("server_name", server_id)} in {channel_id}: {e}')
+            print(f'panel: failed to show the panel of {name} in channel {channel_id}: {e}')
             return
 
         self.messages[server_id] = message
@@ -323,6 +339,8 @@ class PanelBoard:
                 return
             available = {server['server_id']: server for server in servers if server['server_id'] in channels}
             if only is None:
+                self._report(channels, available)
+            if only is None:
                 for server_id in [server_id for server_id in self.state if server_id not in available]:
                     await self._remove(server_id)
             if only is None and panel_mode() == BOTTOM:
@@ -331,6 +349,25 @@ class PanelBoard:
             stats = await asyncio.gather(*(get_server_stats(server['server_id']) for server in targets))
             for server, server_stats in zip(targets, stats):
                 await self._show(server, server_stats, channels[server['server_id']])
+
+    def _report(self, channels: dict[str, int], available: dict[str, dict]) -> None:
+        """
+        Log which servers get a panel, and why a server with a channel does not, whenever that changes.
+        """
+        setup = (tuple(sorted(channels.items())), tuple(sorted(available)))
+        if setup == self.reported:
+            return
+        self.reported = setup
+        if not channels:
+            print('panel: no server has its own channel')
+            return
+        for server_id, channel_id in channels.items():
+            server = available.get(server_id)
+            if server is None:
+                print(f'panel: server {server_id} has channel {channel_id} but is not available in the bot: '
+                      f'tick it under "Verfügbare Server" or check that it still exists in Crafty')
+            else:
+                print(f'panel: {server.get("server_name", server_id)} has its own channel {channel_id}')
 
     # ---- buttons
 

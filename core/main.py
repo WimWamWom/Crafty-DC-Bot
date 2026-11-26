@@ -559,6 +559,11 @@ def apply_config(changed: set[str]) -> bool:
     clear_server_cache()
     if 'status.update_interval' in changed:
         update_status.change_interval(seconds=status_update_interval())
+    if any(name.startswith('panel.') or name == 'servers.allowed' for name in changed):
+        # show new panels at once instead of with the next update
+        task = asyncio.create_task(update_panels.coro())
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
     print(f'config: applied {len(changed)} changed settings without restart')
     return False
 

@@ -1121,7 +1121,11 @@ class WebInterface:
                     html_options = ''.join(f'<option value="{option}"{" selected" if option == choice else ""}>'
                                            f'{escape(text)}</option>' for option, text in options)
                     control = f'<select name="{field_name}">{html_options}</select>'
-                rows.append(f'<label class="domain-row"><span>{escape(server["server_name"])}</span>{control}</label>')
+                allowed = (values or cfg.config)['servers.allowed']
+                # the bot ignores servers that are not available, so their channel would stay empty
+                hint = ' (nicht verfügbar, im Tab „Server“ anhaken)' if allowed and server_id not in allowed else ''
+                rows.append(f'<label class="domain-row"><span>{escape(server["server_name"] + hint)}</span>'
+                            f'{control}</label>')
             if not servers:
                 rows.append('<div class="help">Keine Server in Crafty gefunden.</div>')
             return (f'{open_tag}<label class="name">{escape(field.label)}</label>{marker}'
